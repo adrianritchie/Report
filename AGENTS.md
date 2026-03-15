@@ -1,6 +1,9 @@
 # AGENTS.md — Agent Guide for This Repository
 
 This is a C# / .NET 10 CLI tool that generates teacher assessment reports via a local Ollama instance.
+It operates in **batch mode only**: it reads an exam paper PDF and a teacher feedback Excel spreadsheet,
+sends a structured prompt to Ollama for each student, and writes a single `reports_<timestamp>.xlsx`
+output file plus one `<n>.txt` prompt file per student.
 
 ---
 
@@ -43,7 +46,7 @@ Expected: `Build succeeded. 0 Warning(s) 0 Error(s)`
 "/mnt/c/Program Files/dotnet/dotnet.exe" test "C:\\Source\\POC\\Report\\ReportGenerator\\tests\\ReportGenerator.Tests\\ReportGenerator.Tests.csproj" --verbosity minimal
 ```
 
-Expected: `Passed! - Failed: 0, Passed: 25, ...`
+Expected: `Passed! - Failed: 0, Passed: 31, ...`
 
 ### Run a single test (by name substring)
 
@@ -67,7 +70,7 @@ Expected: `Passed! - Failed: 0, Passed: 25, ...`
   - `Option<T>` constructor: `new Option<T>("--name", new[] { "-n" })` — description goes in `option.Description`
   - Entry point: `rootCommand.Parse(args).InvokeAsync()` (no `CommandLineConfiguration`)
   - `SetAction` (not `SetHandler`), `parseResult.GetValue(option)`
-- **`UglyToad.PdfPig`** `0.1.9-alpha001-patch1` (only available version)
+- **`PdfPig`** `0.1.13` (official NuGet package — replaces the former custom/forked packages)
 - **Ollama Chat API**: `POST /api/chat` with `{ model, messages, stream: false }` — no auth required (local only)
 - **`TaskCanceledException`** is thrown by .NET when `HttpClient.Timeout` is exceeded (not `TimeoutException`)
 
@@ -83,7 +86,7 @@ Env var prefix: `REPORTGEN_`
 | `Ollama` | `Model` | Model name to use (default `llama3.2`) |
 | `Ollama` | `TimeoutSeconds` | HTTP timeout in seconds (default `120`) |
 | `Report` | `DefaultPrompt` | Fallback prompt if none supplied |
-| `Report` | `DefaultOutputDirectory` | Where to save report .txt files |
+| `Report` | `DefaultOutputDirectory` | Where to save the output `.xlsx` file |
 
 Never commit real values — use environment variables or a local `appsettings.Local.json` (git-ignored).
 

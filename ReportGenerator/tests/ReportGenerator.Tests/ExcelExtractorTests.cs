@@ -43,22 +43,19 @@ public sealed class ExcelExtractorTests : IDisposable
         var ws = wb.AddWorksheet("Feedback");
 
         // Headings
-        ws.Cell(1, 1).Value = "Last Name";
-        ws.Cell(1, 2).Value = "First Name";
-        ws.Cell(1, 3).Value = "Written Communication";
-        ws.Cell(1, 4).Value = "Mathematical Reasoning";
+        ws.Cell(1, 1).Value = "Name";
+        ws.Cell(1, 2).Value = "Written Communication";
+        ws.Cell(1, 3).Value = "Mathematical Reasoning";
 
         // Student 1
-        ws.Cell(2, 1).Value = "Smith";
-        ws.Cell(2, 2).Value = "Alice";
-        ws.Cell(2, 3).Value = "Excellent work";
-        ws.Cell(2, 4).Value = "Needs improvement";
+        ws.Cell(2, 1).Value = "Alice Smith";
+        ws.Cell(2, 2).Value = "Excellent work";
+        ws.Cell(2, 3).Value = "Needs improvement";
 
         // Student 2
-        ws.Cell(3, 1).Value = "Jones";
-        ws.Cell(3, 2).Value = "Bob";
-        ws.Cell(3, 3).Value = "Good effort";
-        ws.Cell(3, 4).Value = "Strong performance";
+        ws.Cell(3, 1).Value = "Bob Jones";
+        ws.Cell(3, 2).Value = "Good effort";
+        ws.Cell(3, 3).Value = "Strong performance";
 
         var path = SaveToTempFile(wb);
 
@@ -68,8 +65,7 @@ public sealed class ExcelExtractorTests : IDisposable
         // Assert
         Assert.Equal(2, rows.Count);
 
-        Assert.Equal("Smith",  rows[0].LastName);
-        Assert.Equal("Alice",  rows[0].FirstName);
+        Assert.Equal("Alice Smith", rows[0].Name);
         Assert.Equal("Alice Smith", rows[0].FullName);
         Assert.Equal(2, rows[0].Fields.Count);
         Assert.Equal("Written Communication", rows[0].Fields[0].Heading);
@@ -77,8 +73,7 @@ public sealed class ExcelExtractorTests : IDisposable
         Assert.Equal("Mathematical Reasoning", rows[0].Fields[1].Heading);
         Assert.Equal("Needs improvement",      rows[0].Fields[1].Value);
 
-        Assert.Equal("Jones", rows[1].LastName);
-        Assert.Equal("Bob",   rows[1].FirstName);
+        Assert.Equal("Bob Jones", rows[1].Name);
         Assert.Equal("Bob Jones", rows[1].FullName);
     }
 
@@ -89,19 +84,16 @@ public sealed class ExcelExtractorTests : IDisposable
         using var wb = new XLWorkbook();
         var ws = wb.AddWorksheet("Feedback");
 
-        ws.Cell(1, 1).Value = "Last Name";
-        ws.Cell(1, 2).Value = "First Name";
-        ws.Cell(1, 3).Value = "Comments";
+        ws.Cell(1, 1).Value = "Name";
+        ws.Cell(1, 2).Value = "Comments";
 
-        ws.Cell(2, 1).Value = "Smith";
-        ws.Cell(2, 2).Value = "Alice";
-        ws.Cell(2, 3).Value = "Great";
+        ws.Cell(2, 1).Value = "Alice Smith";
+        ws.Cell(2, 2).Value = "Great";
 
         // Row 3 intentionally left blank
 
-        ws.Cell(4, 1).Value = "Jones";
-        ws.Cell(4, 2).Value = "Bob";
-        ws.Cell(4, 3).Value = "Good";
+        ws.Cell(4, 1).Value = "Bob Jones";
+        ws.Cell(4, 2).Value = "Good";
 
         var path = SaveToTempFile(wb);
 
@@ -110,8 +102,8 @@ public sealed class ExcelExtractorTests : IDisposable
 
         // Assert — only 2 real students, blank row skipped
         Assert.Equal(2, rows.Count);
-        Assert.Equal("Alice", rows[0].FirstName);
-        Assert.Equal("Bob",   rows[1].FirstName);
+        Assert.Equal("Alice Smith", rows[0].Name);
+        Assert.Equal("Bob Jones",   rows[1].Name);
     }
 
     [Fact]
@@ -129,9 +121,8 @@ public sealed class ExcelExtractorTests : IDisposable
         // Arrange — heading row only, no student rows
         using var wb = new XLWorkbook();
         var ws = wb.AddWorksheet("Feedback");
-        ws.Cell(1, 1).Value = "Last Name";
-        ws.Cell(1, 2).Value = "First Name";
-        ws.Cell(1, 3).Value = "Comments";
+        ws.Cell(1, 1).Value = "Name";
+        ws.Cell(1, 2).Value = "Comments";
 
         var path = SaveToTempFile(wb);
 
@@ -140,13 +131,11 @@ public sealed class ExcelExtractorTests : IDisposable
     }
 
     [Fact]
-    public void Extract_ThrowsInvalidOperationException_WhenFewerThanTwoColumns()
+    public void Extract_ThrowsInvalidOperationException_WhenNoColumns()
     {
-        // Arrange — only one column
+        // Arrange — completely empty sheet
         using var wb = new XLWorkbook();
-        var ws = wb.AddWorksheet("Feedback");
-        ws.Cell(1, 1).Value = "Last Name";
-        ws.Cell(2, 1).Value = "Smith";
+        wb.AddWorksheet("Feedback");
 
         var path = SaveToTempFile(wb);
 
@@ -161,15 +150,13 @@ public sealed class ExcelExtractorTests : IDisposable
         using var wb = new XLWorkbook();
         var ws = wb.AddWorksheet("Feedback");
 
-        ws.Cell(1, 1).Value = "Last Name";
-        ws.Cell(1, 2).Value = "First Name";
-        ws.Cell(1, 3).Value = "Written Communication";
-        ws.Cell(1, 4).Value = "Mathematical Reasoning";
+        ws.Cell(1, 1).Value = "Name";
+        ws.Cell(1, 2).Value = "Written Communication";
+        ws.Cell(1, 3).Value = "Mathematical Reasoning";
 
-        ws.Cell(2, 1).Value = "Smith";
-        ws.Cell(2, 2).Value = "Alice";
-        // Column 3 left blank
-        ws.Cell(2, 4).Value = "Strong";
+        ws.Cell(2, 1).Value = "Alice Smith";
+        // Column 2 left blank
+        ws.Cell(2, 3).Value = "Strong";
 
         var path = SaveToTempFile(wb);
 

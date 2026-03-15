@@ -2,10 +2,13 @@
 
 ## Overview
 
-A **C# / .NET 10 CLI tool** that accepts an exam paper PDF, student responses
-(PDF or plain text), and an optional teacher prompt, then calls a **local Ollama
-instance** to produce a concise teacher assessment report. Output is written to
-stdout and saved as a `.txt` file.
+A **C# / .NET 10 CLI tool** that accepts an exam paper PDF and a teacher feedback
+Excel spreadsheet, then calls a **local Ollama instance** to produce a concise
+teacher assessment report for each student. Output is a single
+`reports_<timestamp>.xlsx` file (one row per student) plus one `<n>.txt` prompt
+file per student written to the same output directory.
+
+The tool operates in **batch mode only** — single-student mode has been removed.
 
 ---
 
@@ -13,11 +16,11 @@ stdout and saved as a `.txt` file.
 
 | # | Goal |
 |---|---|
-| 1 | Accept an exam-paper PDF and student responses (PDF or `.txt`) from the command line |
-| 2 | Accept a teacher feedback spreadsheet (`.xlsx`) for batch processing of multiple students |
-| 3 | Allow the teacher to supply a free-text prompt to tune tone/focus of the report |
-| 4 | Send the assembled prompt to a local Ollama Chat API endpoint (no auth required) |
-| 5 | Output the report to the console and save it as a `.txt` file; one file per student in batch mode |
+| 1 | Accept an exam-paper PDF and a teacher feedback `.xlsx` spreadsheet from the command line |
+| 2 | Send a structured prompt to a local Ollama Chat API endpoint for each student |
+| 3 | Allow the teacher to supply a free-text prompt to tune tone/focus of the reports |
+| 4 | Write all reports to a single `reports_<timestamp>.xlsx` file (columns: Student number, Report text) |
+| 5 | Write each student's assembled prompt to `<n>.txt` before the Ollama call |
 | 6 | Allow the model to be configured in `appsettings.json` and overridden per-run via `--model` |
 
 ---
@@ -28,30 +31,29 @@ stdout and saved as a `.txt` file.
 ┌─────────────────────────────────────────────────────────┐
 │  CLI (dotnet run / published executable)                │
 │                                                         │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────────┐  │
-│  │ PDF      │  │ Text Input   │  │ Prompt           │  │
-│  │ Extractor│  │ Reader       │  │ Builder          │  │
-│  └────┬─────┘  └──────┬───────┘  └────────┬─────────┘  │
-│       │               │                   │             │
-│       └───────────────┴───────────────────┘             │
-│                        │                               │
-│  ┌─────────────────┐   │                               │
-│  │ Excel Extractor │───┘ (batch mode)                  │
-│  └─────────────────┘                                   │
-│                        │                               │
-│               ┌────────▼────────┐                      │
-│               │  Ollama Client  │                      │
-│               │  POST /api/chat │                      │
-│               └────────┬────────┘                      │
-│                        │                               │
-│               ┌────────▼────────┐                      │
-│               │ Report Writer   │  → stdout            │
-│               │                 │  → <report>.txt      │
-│               └─────────────────┘                      │
+│  ┌──────────────┐  ┌─────────────────┐                  │
+│  │ PDF Extractor│  │ Excel Extractor │                  │
+│  └──────┬───────┘  └────────┬────────┘                  │
+│         │                   │                           │
+│         └─────────┬─────────┘                           │
+│                   │                                     │
+│          ┌────────▼────────┐                            │
+│          │  Prompt Builder │                            │
+│          └────────┬────────┘                            │
+│                   │                                     │
+│          ┌────────▼────────┐                            │
+│          │  Ollama Client  │                            │
+│          │  POST /api/chat │                            │
+│          └────────┬────────┘                            │
+│                   │                                     │
+│          ┌────────▼────────┐                            │
+│          │  Report Writer  │  → reports_<ts>.xlsx       │
+│          │  (ClosedXML)    │  → <n>.txt prompt files    │
+│          └─────────────────┘                            │
 └─────────────────────────────────────────────────────────┘
-                         │
-              Local Ollama Server
-              (http://localhost:11434)
+                   │
+        Local Ollama Server
+        (http://localhost:11434)
 ```
 
 ---
@@ -64,7 +66,7 @@ ReportGenerator/
 ├── src/
 │   └── ReportGenerator/
 │       ├── ReportGenerator.csproj
-│       ├── Program.cs                       # CLI entry point, argument parsing
+│       ├── Program.cs                       # CLI entry point — batch mode only
 │       ├── appsettings.json                 # Ollama + Report configuration
 │       ├── Configuration/
 │       │   └── AppOptions.cs                # OllamaOptions + ReportOptions
@@ -82,7 +84,7 @@ ReportGenerator/
 │       │   └── OllamaModels.cs              # request/response DTOs
 │       └── Report/
 │           ├── PromptBuilder.cs             # assembles structured prompt
-│           └── ReportWriter.cs              # console + .txt output
+│           └── ReportWriter.cs              # stateful IDisposable; builds .xlsx
 └── tests/
     └── ReportGenerator.Tests/
         ├── ReportGenerator.Tests.csproj
@@ -98,21 +100,6 @@ ReportGenerator/
 
 ## CLI Interface
 
-### Single-student mode
-
-```
-dotnet run -- \
-  --exam       <path/to/exam.pdf>              \
-  --responses  <path/to/responses.pdf|.txt>    \
-  [--prompt    "Focus on mathematical reasoning"] \
-  [--output    <path/to/report.txt>]           \
-  [--student   "Alice Smith"]                  \
-  [--model     mistral]                        \
-  [--verbose]
-```
-
-### Batch mode (Excel spreadsheet)
-
 ```
 dotnet run -- \
   --exam        <path/to/exam.pdf>              \
@@ -123,37 +110,36 @@ dotnet run -- \
   [--verbose]
 ```
 
-`--responses` and `--spreadsheet` are mutually exclusive. One of them is required.
-
-| Flag | Short | Mode | Required | Description |
-|---|---|---|---|---|
-| `--exam` | `-e` | Both | Yes | Path to exam paper PDF |
-| `--responses` | `-r` | Single | One of | Path to student responses PDF or `.txt` |
-| `--spreadsheet` | `-x` | Batch | One of | Path to `.xlsx` feedback spreadsheet |
-| `--prompt` | `-p` | Both | No | Teacher tuning prompt (falls back to `DefaultPrompt`) |
-| `--output` | `-o` | Single | No | Output `.txt` path (default: `<student>_<timestamp>.txt`) |
-| `--output-dir` | `-d` | Batch | No | Directory for report files (default: `DefaultOutputDirectory`) |
-| `--student` | `-s` | Single | No | Student name for the report header |
-| `--model` | `-m` | Both | No | Ollama model name; overrides `appsettings.json` |
-| `--verbose` | `-v` | Both | No | Print extracted text and assembled prompt before sending |
+| Flag | Short | Required | Description |
+|---|---|---|---|
+| `--exam` | `-e` | Yes | Path to exam paper PDF |
+| `--spreadsheet` | `-x` | Yes | Path to `.xlsx` feedback spreadsheet |
+| `--prompt` | `-p` | No | Teacher tuning prompt (falls back to `DefaultPrompt` in config) |
+| `--output-dir` | `-d` | No | Directory for output files (default: `DefaultOutputDirectory` in config) |
+| `--model` | `-m` | No | Ollama model name; overrides `appsettings.json` |
+| `--verbose` | `-v` | No | Print extracted text and assembled prompt before sending |
 
 ---
 
 ## Key Dependencies (NuGet)
 
+### Main project
+
 | Package | Version | Purpose |
 |---|---|---|
 | `System.CommandLine` | `2.0.3` | Argument parsing |
-| `UglyToad.PdfPig` | `0.1.9-alpha001-patch1` | PDF text extraction |
-| `UglyToad.PdfPig.Core/Fonts/Tokenization/Tokens` | `1.7.0-custom-5` | PdfPig sub-packages |
-| `ClosedXML` | `0.105.0` | `.xlsx` spreadsheet reading (no Excel required) |
+| `PdfPig` | `0.1.13` | PDF text extraction |
+| `ClosedXML` | `0.105.0` | `.xlsx` reading and writing (no Excel required) |
 | `Microsoft.Extensions.Http` | `10.0.0` | `IHttpClientFactory` / typed `HttpClient` |
 | `Microsoft.Extensions.Configuration.Json` | `10.0.0` | `appsettings.json` support |
 | `Microsoft.Extensions.Configuration.EnvironmentVariables` | `10.0.0` | Env var overrides |
 | `Microsoft.Extensions.Configuration.Binder` | `10.0.0` | Strongly-typed config binding |
 | `Microsoft.Extensions.DependencyInjection` | `10.0.0` | DI container |
 
-Test project additional packages: `xunit 2.9.3`, `xunit.runner.visualstudio 3.1.4`, `Microsoft.NET.Test.Sdk 17.14.1`, `coverlet.collector 6.0.4`.
+### Test project additional packages
+
+`xunit 2.9.3`, `xunit.runner.visualstudio 3.1.4`, `Microsoft.NET.Test.Sdk 17.14.1`,
+`coverlet.collector 6.0.4`, `ClosedXML 0.105.0` (for asserting saved `.xlsx` contents).
 
 ---
 
@@ -178,24 +164,25 @@ No authentication is required — Ollama runs locally.
 
 ---
 
-## Excel Spreadsheet Format (Batch Mode)
+## Excel Spreadsheet Format
 
-The spreadsheet must be an `.xlsx` file. The first row is the heading row; all subsequent non-empty rows are treated as student records.
+The spreadsheet must be an `.xlsx` file. The first row is the heading row; all
+subsequent non-empty rows are treated as student records.
 
 | Column | Content |
 |---|---|
-| 1 | Last name |
-| 2 | First name |
-| 3+ | Feedback fields — the heading cell provides the label; the cell value is the content |
+| 1 | Student name (full name in a single cell) |
+| 2+ | Feedback fields — the heading cell provides the label; the cell value is the content |
 
-Empty rows (both name cells blank) are skipped automatically. Blank feedback cells are included in the prompt with an empty value.
+Empty rows (name cell blank) are skipped automatically. Blank feedback cells are
+included in the prompt with an empty value.
 
 **Example:**
 
-| Last Name | First Name | Written Communication | Mathematical Reasoning |
-|---|---|---|---|
-| Smith | Alice | Excellent written work | Strong number sense |
-| Jones | Bob | Needs more detail | Solid understanding |
+| Name | Written Communication | Mathematical Reasoning |
+|---|---|---|
+| Alice Smith | Excellent written work | Strong number sense |
+| Bob Jones | Needs more detail | Solid understanding |
 
 Each feedback field is rendered in the prompt as:
 ```
@@ -206,7 +193,9 @@ Excellent written work
 Strong number sense
 ```
 
-### Batch error handling
+---
+
+## Batch Error Handling
 
 When a student fails (e.g. Ollama timeout):
 1. **Auto-retry once** silently
@@ -221,17 +210,21 @@ Exit code `3` is returned if any students were skipped due to errors.
 
 ## Prompt Structure
 
-The prompt assembled by `PromptBuilder` follows this template (batch mode prepends fields from the spreadsheet as the responses block):
+The prompt assembled by `PromptBuilder` follows this template:
 
 ```
 [STUDENT]
-<student name, if provided>
+<student full name>
 
 [EXAM PAPER]
 <extracted exam text>
 
 [STUDENT RESPONSES]
-<extracted responses text  —OR—  labelled spreadsheet fields>
+[Written Communication]
+<value>
+
+[Mathematical Reasoning]
+<value>
 
 [TEACHER INSTRUCTIONS]
 <teacher --prompt text, or DefaultPrompt from config>
@@ -243,40 +236,28 @@ report card. The report must include:
   1. An overall performance summary (2-3 sentences).
   2. Key strengths demonstrated by the student.
   3. Specific areas for improvement with actionable suggestions.
-  4. A recommended grade or mark with brief justification.
-Use formal but accessible language. Do not invent facts not evidenced in the
-student's responses.
-```
-
-In batch mode the `[STUDENT RESPONSES]` section is built from the spreadsheet fields:
-
-```
-[Written Communication]
-Excellent work…
-
-[Mathematical Reasoning]
-Needs improvement…
+The report should not include:
+  1. A recommended grade or mark with brief justification.
+Use formal but accessible language appropriate for sharing with parents and students.
+Do not invent facts not evidenced in the student's responses.
+Keep the report concise, ideally around 150 words.
 ```
 
 ---
 
 ## Report Output
 
-The `.txt` file and console output share the same format:
+### Excel file (`reports_<timestamp>.xlsx`)
 
-```
-=============================================
- TEACHER ASSESSMENT REPORT
- Student : Alice Smith
- Date    : 2026-03-04
-=============================================
+- One worksheet named **Reports**
+- Header row (bold): **Student** | **Report**
+- One data row per student: sequential number | Ollama report text
+- Column A auto-fitted; column B fixed at width 100 with wrap-text enabled
 
-[Report body from Ollama]
+### Prompt files (`<n>.txt`)
 
-=============================================
- Generated by ReportGenerator v1.0
-=============================================
-```
+Written to the output directory before the Ollama call for each student, so they
+persist even if the Ollama call fails.
 
 ---
 
@@ -284,18 +265,13 @@ The `.txt` file and console output share the same format:
 
 | Scenario | Exit code | Behaviour |
 |---|---|---|
-| Exam or responses file not found | 1 | Print path; exit |
-| Spreadsheet not found | 1 | Print path; exit |
-| `--responses` and `--spreadsheet` both provided | 1 | Print mutual-exclusivity error; exit |
-| Neither `--responses` nor `--spreadsheet` provided | 1 | Print usage hint; exit |
-| Unsupported file type | 1 | Print supported formats; exit |
-| Spreadsheet has fewer than 2 columns | 1 | Print format error; exit |
-| Spreadsheet has no data rows | 1 | Print warning; exit 0 |
+| Exam or spreadsheet file not found | 1 | Print path; exit |
+| Spreadsheet has no data rows | 0 | Print warning; exit cleanly |
+| Spreadsheet has no columns | 1 | Print format error; exit |
 | Ollama unreachable (`HttpRequestException`) | 3 | Print URL + "ensure `ollama serve` is running" |
 | Ollama timeout (`TaskCanceledException`) | 3 | Print timeout value + suggest smaller model |
-| Empty / whitespace response from Ollama | 4 (single) / skip (batch) | Warn; exit or continue |
+| Empty / whitespace response from Ollama | skip (batch) | Count as failed; apply retry logic |
 | Per-student failure in batch after retries | 3 (end of batch) | Skip student; print summary |
-| Output file not writable | — | Print to stdout only; log warning |
 | User cancellation (`Ctrl+C`) | 1 | Print cancelled message |
 
 ---
@@ -311,13 +287,14 @@ The `.txt` file and console output share the same format:
   },
   "Report": {
     "DefaultOutputDirectory": ".",
-    "DefaultPrompt": "Provide a balanced, constructive assessment suitable for a school report card. Highlight strengths, identify areas for improvement, and suggest a recommended grade."
+    "DefaultPrompt": "Provide a balanced, constructive assessment suitable for a school report card. Highlight strengths, identify areas for improvement. Keep the output to a maximum of 150 words. Use a positive and encouraging tone."
   }
 }
 ```
 
 All keys can be overridden via environment variables with the prefix `REPORTGEN_`
-(e.g. `REPORTGEN_Ollama__Model=mistral`). No secrets are required — Ollama is local and unauthenticated.
+(e.g. `REPORTGEN_Ollama__Model=mistral`). No secrets are required — Ollama is local
+and unauthenticated.
 
 ---
 
@@ -327,16 +304,17 @@ The project is **feature-complete**. All planned work is implemented and tested.
 
 | Area | Status |
 |---|---|
-| CLI argument parsing (`System.CommandLine 2.0.3`) | Done |
-| PDF text extraction (`PdfPig`) | Done |
+| CLI argument parsing (`System.CommandLine 2.0.3`) — batch-only | Done |
+| PDF text extraction (`PdfPig 0.1.13`) | Done |
 | Plain-text / `.txt` file support | Done |
 | Content extractor router (PDF vs text by extension) | Done |
-| Excel spreadsheet reader (`ClosedXML`) — batch mode | Done |
-| Prompt builder (structured template) | Done |
+| Excel spreadsheet reader (`ClosedXML`) | Done |
+| Prompt builder (structured template, no grade recommendation) | Done |
 | Ollama Chat API client (`POST /api/chat`, `stream: false`) | Done |
-| Report writer (console + `.txt` file) | Done |
+| Per-student prompt file written as `<n>.txt` before Ollama call | Done |
+| Report writer — stateful `IDisposable`, saves `reports_<ts>.xlsx` | Done |
 | `--model` flag overriding appsettings | Done |
-| Batch mode: per-student retry with interactive prompt | Done |
+| Per-student retry with interactive prompt; exit code 3 on skips | Done |
 | Unit tests — 31 passing, 0 failing | Done |
 
 ### Test coverage
@@ -346,7 +324,7 @@ The project is **feature-complete**. All planned work is implemented and tested.
 | `TextFileExtractorTests.cs` | Plain-text extraction |
 | `ContentExtractorRouterTests.cs` | Routing by file extension |
 | `PromptBuilderTests.cs` | Prompt template assembly |
-| `ReportWriterTests.cs` | Console + file output, filename generation |
+| `ReportWriterTests.cs` | Excel file creation, header row, data rows, filename prefix |
 | `OllamaClientTests.cs` | HTTP happy path, model/stream/message sent, all error paths |
 | `ExcelExtractorTests.cs` | Happy path, empty rows skipped, missing file, no data rows, too few columns, blank cells |
 
@@ -354,7 +332,6 @@ The project is **feature-complete**. All planned work is implemented and tested.
 
 ## Out of Scope (for now)
 
-- Batch / multi-student mode
 - Web or Teams UI
 - Grade database / persistence
 - Mark-scheme aware grading (future: upload a mark scheme as a third PDF)
