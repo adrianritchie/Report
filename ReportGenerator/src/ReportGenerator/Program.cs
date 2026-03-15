@@ -31,7 +31,6 @@ services.AddSingleton(reportOptions);
 services.AddSingleton<IContentExtractor, ContentExtractorRouter>();
 services.AddSingleton<IExcelExtractor, ExcelExtractor>();
 services.AddSingleton<PromptBuilder>();
-services.AddSingleton<ReportWriter>();
 
 services.AddHttpClient<IOllamaClient, OllamaClient>(client =>
 {
@@ -49,14 +48,10 @@ var examOpt = new Option<FileInfo>("--exam", new[] { "-e" })
     Required = true
 };
 
-var responsesOpt = new Option<FileInfo?>("--responses", new[] { "-r" })
+var spreadsheetOpt = new Option<FileInfo>("--spreadsheet", new[] { "-x" })
 {
-    Description = "Path to the student responses (PDF or .txt). Use for single-student mode."
-};
-
-var spreadsheetOpt = new Option<FileInfo?>("--spreadsheet", new[] { "-x" })
-{
-    Description = "Path to an Excel (.xlsx) spreadsheet with one student per row. Use for batch mode."
+    Description = "Path to an Excel (.xlsx) spreadsheet with one student per row.",
+    Required = true
 };
 
 var promptOpt = new Option<string?>("--prompt", new[] { "-p" })
@@ -64,19 +59,9 @@ var promptOpt = new Option<string?>("--prompt", new[] { "-p" })
     Description = "Optional teacher instructions to tune the report."
 };
 
-var outputOpt = new Option<FileInfo?>("--output", new[] { "-o" })
-{
-    Description = "Output .txt file path (single-student mode only). Defaults to <student>_<timestamp>.txt."
-};
-
 var outputDirOpt = new Option<DirectoryInfo?>("--output-dir", new[] { "-d" })
 {
-    Description = "Directory for report files (batch mode). Defaults to DefaultOutputDirectory in appsettings.json."
-};
-
-var studentOpt = new Option<string?>("--student", new[] { "-s" })
-{
-    Description = "Student name to include in the report header (single-student mode only)."
+    Description = "Directory for the output .xlsx file. Defaults to DefaultOutputDirectory in appsettings.json."
 };
 
 var modelOpt = new Option<string?>("--model", new[] { "-m" })
@@ -91,30 +76,22 @@ var verboseOpt = new Option<bool>("--verbose", new[] { "-v" })
 
 var rootCommand = new RootCommand(
     "Generates teacher assessment reports using a local Ollama model.\n" +
-    "\nSingle-student example:\n" +
-    "  dotnet run -- --exam exam.pdf --responses alice.pdf --student \"Alice Smith\"\n" +
-    "\nBatch example:\n" +
+    "\nExample:\n" +
     "  dotnet run -- --exam exam.pdf --spreadsheet feedback.xlsx --output-dir ./reports");
 
 rootCommand.Add(examOpt);
-rootCommand.Add(responsesOpt);
 rootCommand.Add(spreadsheetOpt);
 rootCommand.Add(promptOpt);
-rootCommand.Add(outputOpt);
 rootCommand.Add(outputDirOpt);
-rootCommand.Add(studentOpt);
 rootCommand.Add(modelOpt);
 rootCommand.Add(verboseOpt);
 
 rootCommand.SetAction(async (parseResult, cancellationToken) =>
 {
     var exam        = parseResult.GetValue(examOpt)!;
-    var responses   = parseResult.GetValue(responsesOpt);
-    var spreadsheet = parseResult.GetValue(spreadsheetOpt);
+    var spreadsheet = parseResult.GetValue(spreadsheetOpt)!;
     var prompt      = parseResult.GetValue(promptOpt);
-    var output      = parseResult.GetValue(outputOpt);
     var outputDir   = parseResult.GetValue(outputDirOpt);
-    var student     = parseResult.GetValue(studentOpt);
     var model       = parseResult.GetValue(modelOpt);
     var verbose     = parseResult.GetValue(verboseOpt);
 
@@ -122,149 +99,10 @@ rootCommand.SetAction(async (parseResult, cancellationToken) =>
     if (!string.IsNullOrWhiteSpace(model))
         ollamaOptions.Model = model;
 
-    // Validate mutual exclusivity
-    if (responses is not null && spreadsheet is not null)
-    {
-        Console.Error.WriteLine("[Error] --responses and --spreadsheet cannot be used together. " +
-                                "Use --responses for a single student or --spreadsheet for batch mode.");
-        return 1;
-    }
-
-    if (responses is null && spreadsheet is null)
-    {
-        Console.Error.WriteLine("[Error] Either --responses (single student) or --spreadsheet (batch) is required.");
-        return 1;
-    }
-
-    if (spreadsheet is not null)
-        return await RunBatchAsync(exam, spreadsheet, prompt, outputDir, verbose, cancellationToken);
-
-    return await RunSingleAsync(exam, responses!, prompt, output, student, verbose, cancellationToken);
+    return await RunBatchAsync(exam, spreadsheet, prompt, outputDir, verbose, cancellationToken);
 });
 
 return await rootCommand.Parse(args).InvokeAsync();
-
-// ── Single-student Mode ───────────────────────────────────────────────────────
-
-async Task<int> RunSingleAsync(
-    FileInfo examFile,
-    FileInfo responsesFile,
-    string? teacherPrompt,
-    FileInfo? outputFile,
-    string? studentName,
-    bool verbose,
-    CancellationToken cancellationToken)
-{
-    try
-    {
-        if (!examFile.Exists)
-        {
-            Console.Error.WriteLine($"[Error] Exam file not found: {examFile.FullName}");
-            return 1;
-        }
-
-        if (!responsesFile.Exists)
-        {
-            Console.Error.WriteLine($"[Error] Responses file not found: {responsesFile.FullName}");
-            return 1;
-        }
-
-        var effectivePrompt = !string.IsNullOrWhiteSpace(teacherPrompt)
-            ? teacherPrompt
-            : reportOptions.DefaultPrompt;
-
-        Console.WriteLine("Report Generator v1.0");
-        Console.WriteLine($"  Exam      : {examFile.Name}");
-        Console.WriteLine($"  Responses : {responsesFile.Name}");
-        Console.WriteLine($"  Model     : {ollamaOptions.Model}");
-        if (!string.IsNullOrWhiteSpace(studentName))
-            Console.WriteLine($"  Student   : {studentName}");
-        Console.WriteLine();
-
-        var extractor = serviceProvider.GetRequiredService<IContentExtractor>();
-
-        Console.Write("Extracting exam paper text...");
-        var examText = await extractor.ExtractAsync(examFile.FullName, cancellationToken);
-        Console.WriteLine($" {examText.Length} characters extracted.");
-
-        Console.Write("Extracting student responses...");
-        var responsesText = await extractor.ExtractAsync(responsesFile.FullName, cancellationToken);
-        Console.WriteLine($" {responsesText.Length} characters extracted.");
-
-        if (verbose)
-        {
-            PrintVerboseSection("EXAM PAPER TEXT", examText);
-            PrintVerboseSection("STUDENT RESPONSES TEXT", responsesText);
-        }
-
-        var promptBuilder   = serviceProvider.GetRequiredService<PromptBuilder>();
-        var assembledPrompt = promptBuilder.Build(examText, responsesText, effectivePrompt, studentName);
-
-        if (verbose)
-            PrintVerboseSection("ASSEMBLED PROMPT", assembledPrompt);
-
-        Console.Write($"Sending prompt to Ollama ({ollamaOptions.Model})...");
-        var ollamaClient = serviceProvider.GetRequiredService<IOllamaClient>();
-        var reportText   = await ollamaClient.SendPromptAsync(assembledPrompt, cancellationToken);
-        Console.WriteLine(" done.");
-
-        if (string.IsNullOrWhiteSpace(reportText))
-        {
-            Console.Error.WriteLine("[Warning] Ollama returned an empty response.");
-            return 4;
-        }
-
-        var writer = serviceProvider.GetRequiredService<ReportWriter>();
-        string savedPath;
-
-        if (outputFile is not null)
-            savedPath = await writer.WriteToPathAsync(reportText, outputFile.FullName, studentName, cancellationToken);
-        else
-            savedPath = await writer.WriteAsync(reportText, reportOptions.DefaultOutputDirectory, studentName, cancellationToken);
-
-        Console.WriteLine();
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine($"Report saved to: {savedPath}");
-        Console.ResetColor();
-
-        return 0;
-    }
-    catch (FileNotFoundException ex)
-    {
-        Console.Error.WriteLine($"[Error] File not found: {ex.FileName}");
-        return 1;
-    }
-    catch (NotSupportedException ex)
-    {
-        Console.Error.WriteLine($"[Error] Unsupported file format: {ex.Message}");
-        return 1;
-    }
-    catch (HttpRequestException ex)
-    {
-        Console.Error.WriteLine($"[Network Error] Could not reach Ollama at {ollamaOptions.BaseUrl}.");
-        Console.Error.WriteLine($"  Detail: {ex.Message}");
-        Console.Error.WriteLine("  Ensure Ollama is running: ollama serve");
-        return 3;
-    }
-    catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException || !cancellationToken.IsCancellationRequested)
-    {
-        Console.Error.WriteLine($"[Timeout] Ollama did not respond within {ollamaOptions.TimeoutSeconds}s.");
-        Console.Error.WriteLine("  Consider increasing Ollama:TimeoutSeconds in appsettings.json, or using a smaller model.");
-        return 3;
-    }
-    catch (OperationCanceledException)
-    {
-        Console.Error.WriteLine("[Cancelled] Operation was cancelled.");
-        return 1;
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"[Unexpected Error] {ex.GetType().Name}: {ex.Message}");
-        if (verbose)
-            Console.Error.WriteLine(ex.StackTrace);
-        return 1;
-    }
-}
 
 // ── Batch Mode ────────────────────────────────────────────────────────────────
 
@@ -296,7 +134,7 @@ async Task<int> RunBatchAsync(
 
         var outDir = outputDirectory?.FullName ?? reportOptions.DefaultOutputDirectory;
 
-        Console.WriteLine("Report Generator v1.0  [batch mode]");
+        Console.WriteLine("Report Generator v1.0");
         Console.WriteLine($"  Exam        : {examFile.Name}");
         Console.WriteLine($"  Spreadsheet : {spreadsheetFile.Name}");
         Console.WriteLine($"  Model       : {ollamaOptions.Model}");
@@ -327,7 +165,8 @@ async Task<int> RunBatchAsync(
 
         var promptBuilder = serviceProvider.GetRequiredService<PromptBuilder>();
         var ollamaClient  = serviceProvider.GetRequiredService<IOllamaClient>();
-        var writer        = serviceProvider.GetRequiredService<ReportWriter>();
+
+        using var writer = new ReportWriter();
 
         var succeeded = 0;
         var failed    = 0;
@@ -354,14 +193,15 @@ async Task<int> RunBatchAsync(
             if (verbose)
                 PrintVerboseSection($"ASSEMBLED PROMPT — {s.FullName}", assembledPrompt);
 
-            // Attempt generation with one automatic retry then interactive prompt
-            var savedPath = await TryGenerateReportAsync(
-                ollamaClient, writer, assembledPrompt, s, outDir, cancellationToken);
+            await WritePromptFileAsync(assembledPrompt, outDir, i + 1, cancellationToken);
 
-            if (savedPath is not null)
+            var reportText = await TryGenerateReportAsync(ollamaClient, assembledPrompt, s, cancellationToken);
+
+            if (reportText is not null)
             {
+                writer.AddRow(i + 1, reportText);
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($" saved → {Path.GetFileName(savedPath)}");
+                Console.WriteLine(" done.");
                 Console.ResetColor();
                 succeeded++;
             }
@@ -371,11 +211,25 @@ async Task<int> RunBatchAsync(
             }
         }
 
-        Console.WriteLine();
-        Console.ForegroundColor = succeeded == students.Count ? ConsoleColor.Green : ConsoleColor.Yellow;
-        Console.WriteLine($"Completed {succeeded}/{students.Count} student(s). Reports saved to: {outDir}");
+        if (succeeded > 0)
+        {
+            var savedPath = await writer.SaveAsync(outDir, cancellationToken);
+            Console.WriteLine();
+            Console.ForegroundColor = succeeded == students.Count ? ConsoleColor.Green : ConsoleColor.Yellow;
+            Console.WriteLine($"Completed {succeeded}/{students.Count} student(s).");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"Report saved to: {savedPath}");
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("No reports were generated.");
+        }
+
         if (failed > 0)
             Console.WriteLine($"  {failed} student(s) were skipped due to errors.");
+
         Console.ResetColor();
 
         return failed == 0 ? 0 : 3;
@@ -409,14 +263,12 @@ async Task<int> RunBatchAsync(
 /// <summary>
 /// Tries to generate a report for one student.
 /// On failure: auto-retries once silently, then prompts the user.
-/// Returns the saved file path on success, or null if skipped.
+/// Returns the report text on success, or null if skipped.
 /// </summary>
 async Task<string?> TryGenerateReportAsync(
     IOllamaClient ollamaClient,
-    ReportWriter writer,
     string assembledPrompt,
     StudentRow student,
-    string outDir,
     CancellationToken cancellationToken)
 {
     // Attempt 1 (initial) + Attempt 2 (auto-retry) + Attempt 3 (user-requested retry)
@@ -429,8 +281,7 @@ async Task<string?> TryGenerateReportAsync(
             if (string.IsNullOrWhiteSpace(reportText))
                 throw new InvalidOperationException("Ollama returned an empty response.");
 
-            var savedPath = await writer.WriteAsync(reportText, outDir, student.FullName, cancellationToken);
-            return savedPath;
+            return reportText;
         }
         catch (OperationCanceledException)
         {
@@ -496,6 +347,23 @@ string BuildResponsesFromFields(StudentRow student)
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
+
+/// <summary>Writes the assembled prompt for one student to &lt;n&gt;.txt in the output directory.</summary>
+async Task WritePromptFileAsync(string prompt, string outputDirectory, int sequenceNumber, CancellationToken cancellationToken)
+{
+    try
+    {
+        Directory.CreateDirectory(outputDirectory);
+        var filePath = Path.Combine(outputDirectory, $"{sequenceNumber}.txt");
+        await File.WriteAllTextAsync(filePath, prompt, cancellationToken);
+    }
+    catch (Exception ex)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkYellow;
+        Console.Error.WriteLine($"  [Warning] Could not write prompt file for student {sequenceNumber}: {ex.Message}");
+        Console.ResetColor();
+    }
+}
 
 void PrintVerboseSection(string title, string content)
 {

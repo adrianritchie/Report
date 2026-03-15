@@ -40,9 +40,11 @@ public sealed class PromptBuilder
             "  1. An overall performance summary (2-3 sentences)." + Environment.NewLine +
             "  2. Key strengths demonstrated by the student." + Environment.NewLine +
             "  3. Specific areas for improvement with actionable suggestions." + Environment.NewLine +
-            "  4. A recommended grade or mark with brief justification." + Environment.NewLine +
+            "The report should not include:" + Environment.NewLine +
+            "  1. A recommended grade or mark with brief justification." + Environment.NewLine +
             "Use formal but accessible language appropriate for sharing with parents and students. " +
-            "Do not invent facts not evidenced in the student's responses.");
+            "Do not invent facts not evidenced in the student's responses." + Environment.NewLine +
+            "Keep the report concise, ideally around 150 words.");
 
         return sb.ToString();
     }
