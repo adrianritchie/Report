@@ -44,7 +44,8 @@ public sealed class PromptBuilder
             "  1. A recommended grade or mark with brief justification." + Environment.NewLine +
             "Use formal but accessible language appropriate for sharing with parents and students. " +
             "Do not invent facts not evidenced in the student's responses." + Environment.NewLine +
-            "Keep the report concise, ideally around 150 words.");
+            "Keep the report concise, ideally around 150 words." + Environment.NewLine +
+            "Where possible relate feedback to specific parts of the exam paper and student responses, but avoid excessive detail.");
 
         return sb.ToString();
     }
