@@ -222,6 +222,55 @@ public sealed class OllamaClientTests
             () => client.SendPromptAsync("prompt"));
     }
 
+    // ── ListModelsAsync tests ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ListModelsAsync_ReturnsModelNames_OnSuccess()
+    {
+        // Arrange
+        var body = new
+        {
+            models = new[]
+            {
+                new { name = "llama3.2" },
+                new { name = "mistral" },
+                new { name = "codellama" }
+            }
+        };
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                JsonSerializer.Serialize(body),
+                Encoding.UTF8,
+                "application/json")
+        };
+        var client = new OllamaClient(BuildHttpClient(response), DefaultOptions);
+
+        // Act
+        var models = await client.ListModelsAsync();
+
+        // Assert — names returned and sorted alphabetically
+        Assert.Equal(3, models.Count);
+        Assert.Equal("codellama", models[0]);
+        Assert.Equal("llama3.2", models[1]);
+        Assert.Equal("mistral", models[2]);
+    }
+
+    [Fact]
+    public async Task ListModelsAsync_ThrowsHttpRequestException_WhenUnreachable()
+    {
+        // Arrange — simulate a non-success HTTP status
+        var errorResponse = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = new StringContent("Service Unavailable")
+        };
+        var client = new OllamaClient(BuildHttpClient(errorResponse), DefaultOptions);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.ListModelsAsync());
+    }
+
     // ── stub handlers ─────────────────────────────────────────────────────────
 
     private sealed class StubHttpMessageHandler(HttpResponseMessage response)

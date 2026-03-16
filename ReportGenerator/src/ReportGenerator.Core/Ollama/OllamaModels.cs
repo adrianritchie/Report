@@ -41,3 +41,18 @@ public sealed class OllamaChatResponse
     [JsonPropertyName("done_reason")]
     public string? DoneReason { get; set; }
 }
+
+// ── Ollama Tags API response models ──────────────────────────────────────────
+// Endpoint: GET /api/tags
+
+public sealed class OllamaTagsResponse
+{
+    [JsonPropertyName("models")]
+    public List<OllamaModelInfo> Models { get; set; } = [];
+}
+
+public sealed class OllamaModelInfo
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}

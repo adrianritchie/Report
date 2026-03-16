@@ -48,4 +48,20 @@ public sealed class OllamaClient : IOllamaClient
 
         return body.Message.Content;
     }
+
+    public async Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await _http.GetAsync("api/tags", cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<OllamaTagsResponse>(JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Ollama returned an empty response body for /api/tags.");
+
+        return body.Models
+            .Select(m => m.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .OrderBy(n => n)
+            .ToList()
+            .AsReadOnly();
+    }
 }
