@@ -97,6 +97,51 @@
     </div>
 }
 
+@* ── Exam summary review panel ────────────────────────────────────────────── *@
+@if (_awaitingReview)
+{
+    <div class="bg-white rounded-2xl shadow-sm border border-indigo-200 p-6 mb-6">
+        <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+            </svg>
+            <h2 class="text-sm font-semibold text-slate-700">Review Exam Summary</h2>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">
+            This summary was extracted from the exam paper and will be used as context for each student report.
+            Edit it if needed, then click <strong>Continue</strong> to begin generating reports.
+        </p>
+
+        @if (_summaryWasFallback)
+        {
+            <div class="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-lg mb-3">
+                <svg class="w-3.5 h-3.5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                </svg>
+                Summarisation failed — showing raw exam text as fallback. You may edit before continuing.
+            </div>
+        }
+
+        <textarea class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-xs font-mono text-slate-700 shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  rows="14"
+                  @bind="_examSummaryEditable"
+                  @bind:event="oninput">
+        </textarea>
+
+        <div class="flex items-center gap-3 mt-4">
+            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm shadow-sm"
+                    @onclick="OnReviewContinueClicked">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                </svg>
+                Continue — Generate Reports
+            </button>
+            <span class="text-xs text-slate-400">Any edits you make above will be used in the student prompts.</span>
+        </div>
+    </div>
+}
+
 @* ── Retry banner ─────────────────────────────────────────────────────────── *@
 @if (_retryStudentName is not null)
 {
@@ -153,6 +198,12 @@
     private int _totalStudents;
     private int _doneStudents;
 
+    // exam summary review
+    private bool _awaitingReview;
+    private bool _summaryWasFallback;
+    private string _examSummaryEditable = string.Empty;
+    private TaskCompletionSource<string>? _reviewTcs;
+
     // per-student retry support
     private string? _retryStudentName;
     private TaskCompletionSource<bool>? _retryCts;
@@ -196,6 +247,9 @@
         _reportRows.Clear();
         _totalStudents = 0;
         _doneStudents = 0;
+        _awaitingReview = false;
+        _summaryWasFallback = false;
+        _examSummaryEditable = string.Empty;
         _generationCts = new CancellationTokenSource();
         var ct = _generationCts.Token;
 
@@ -249,6 +303,44 @@
                 return;
             }
 
+            // Step: summarise exam paper via LLM
+            OllamaOptions.Model = _selectedModel;
+            var summaryStep = AddStep("Summarising exam paper");
+            await InvokeAsync(StateHasChanged);
+
+            string examContext;
+            try
+            {
+                var summaryPrompt = PromptBuilder.BuildExamSummaryPrompt(examText);
+                var summary = await OllamaClient.SendPromptAsync(summaryPrompt, ct);
+                examContext = summary;
+                _summaryWasFallback = false;
+                SetStep(summaryStep, StepStatus.Done, "Review the summary below before continuing");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                examContext = examText;
+                _summaryWasFallback = true;
+                SetStep(summaryStep, StepStatus.Done, $"Summarisation failed — using raw text ({ex.Message})");
+            }
+
+            // Pause for teacher to review / edit the summary
+            _examSummaryEditable = examContext;
+            _awaitingReview = true;
+            _reviewTcs = new TaskCompletionSource<string>();
+            await InvokeAsync(StateHasChanged);
+
+            // Await teacher confirmation; result is the (possibly edited) summary text
+            examContext = await _reviewTcs.Task;
+            _awaitingReview = false;
+            await InvokeAsync(StateHasChanged);
+
+            if (ct.IsCancellationRequested) return;
+
             _totalStudents = students.Count;
             await InvokeAsync(StateHasChanged);
 
@@ -266,12 +358,12 @@
                 var responsesText = string.Join(Environment.NewLine,
                     student.Fields.Select(f => $"{f.Heading}: {f.Value}"));
 
-                // Build prompt
+                // Build prompt using the reviewed exam context
                 var effectivePrompt = string.IsNullOrWhiteSpace(_prompt)
                     ? ReportOptions.DefaultPrompt
                     : _prompt;
 
-                var fullPrompt = PromptBuilder.Build(examText, responsesText, effectivePrompt, student.FullName);
+                var fullPrompt = PromptBuilder.Build(examContext, responsesText, effectivePrompt, student.FullName);
 
                 // Write prompt file
                 var promptFile = Path.Combine(tempDir, $"{i + 1}.txt");
@@ -314,7 +406,7 @@
                     {
                         throw;
                     }
-                    catch (Exception ex) when (attempt < 3)
+                    catch (Exception) when (attempt < 3)
                     {
                         SetStep(studentStep, StepStatus.InProgress, $"Attempt {attempt} failed — retrying…");
                         await InvokeAsync(StateHasChanged);
@@ -358,6 +450,7 @@
             if (examTempPath is not null) TryDelete(examTempPath);
             if (sheetTempPath is not null) TryDelete(sheetTempPath);
 
+            _awaitingReview = false;
             _isGenerating = false;
             _generationCts?.Dispose();
             _generationCts = null;
@@ -369,7 +462,11 @@
     {
         _generationCts?.Cancel();
         _retryCts?.TrySetCanceled();
+        _reviewTcs?.TrySetCanceled();
     }
+
+    private void OnReviewContinueClicked()
+        => _reviewTcs?.TrySetResult(_examSummaryEditable);
 
     private void OnRetryDecision(bool retry)
         => _retryCts?.TrySetResult(retry);
