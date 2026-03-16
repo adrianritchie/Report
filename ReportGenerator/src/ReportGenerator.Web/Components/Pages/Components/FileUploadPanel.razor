@@ -1,0 +1,65 @@
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+    <div class="rounded-lg border-2 border-dashed border-slate-300 bg-white px-5 py-4 hover:border-indigo-400 transition-colors">
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Exam Paper (PDF or TXT)</label>
+        <InputFile OnChange="OnExamFileChanged" accept=".pdf,.txt,.md,.text"
+                   class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer" />
+        @if (_examError is not null)
+        {
+            <span class="block mt-1 text-xs text-red-600">@_examError</span>
+        }
+    </div>
+
+    <div class="rounded-lg border-2 border-dashed border-slate-300 bg-white px-5 py-4 hover:border-indigo-400 transition-colors">
+        <label class="block text-sm font-semibold text-slate-700 mb-2">Feedback Spreadsheet (XLSX)</label>
+        <InputFile OnChange="OnSheetFileChanged" accept=".xlsx"
+                   class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer" />
+        @if (_sheetError is not null)
+        {
+            <span class="block mt-1 text-xs text-red-600">@_sheetError</span>
+        }
+    </div>
+
+</div>
+
+@code {
+    [Parameter] public EventCallback<(string FileName, byte[] Data)> ExamFileChanged { get; set; }
+    [Parameter] public EventCallback<(string FileName, byte[] Data)> SheetFileChanged { get; set; }
+
+    private string? _examError;
+    private string? _sheetError;
+
+    private async Task OnExamFileChanged(InputFileChangeEventArgs e)
+    {
+        _examError = null;
+        try
+        {
+            var file = e.File;
+            using var ms = new MemoryStream();
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            await stream.CopyToAsync(ms);
+            await ExamFileChanged.InvokeAsync((file.Name, ms.ToArray()));
+        }
+        catch (Exception ex)
+        {
+            _examError = ex.Message;
+        }
+    }
+
+    private async Task OnSheetFileChanged(InputFileChangeEventArgs e)
+    {
+        _sheetError = null;
+        try
+        {
+            var file = e.File;
+            using var ms = new MemoryStream();
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+            await stream.CopyToAsync(ms);
+            await SheetFileChanged.InvokeAsync((file.Name, ms.ToArray()));
+        }
+        catch (Exception ex)
+        {
+            _sheetError = ex.Message;
+        }
+    }
+}

@@ -1,0 +1,30 @@
+@using ReportGenerator.Web.Models
+
+@if (Rows is { Count: > 0 })
+{
+    <div class="overflow-x-auto rounded-lg border border-slate-200 shadow-sm">
+        <table class="w-full text-sm text-left border-collapse">
+            <thead class="bg-slate-100 text-slate-600 uppercase text-xs tracking-wider sticky top-0">
+                <tr>
+                    <th class="px-4 py-3 font-semibold w-10">#</th>
+                    <th class="px-4 py-3 font-semibold w-40">Student</th>
+                    <th class="px-4 py-3 font-semibold">Report</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @foreach (var (row, index) in Rows.Select((r, i) => (r, i)))
+                {
+                    <tr class="@(index % 2 == 0 ? "bg-white" : "bg-slate-50") hover:bg-indigo-50 transition-colors">
+                        <td class="px-4 py-3 text-slate-500 font-mono text-xs">@row.SequenceNumber</td>
+                        <td class="px-4 py-3 font-medium text-slate-800">@row.StudentName</td>
+                        <td class="px-4 py-3 text-slate-700 report-cell">@row.ReportText</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<ReportRow>? Rows { get; set; }
+}

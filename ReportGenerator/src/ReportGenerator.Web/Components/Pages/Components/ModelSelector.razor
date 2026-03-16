@@ -1,0 +1,51 @@
+@using ReportGenerator.Ollama
+@inject IOllamaClient OllamaClient
+
+@if (_errorMessage is not null)
+{
+    <div class="rounded-md bg-amber-50 border border-amber-300 px-4 py-3 text-amber-800 text-sm mb-2">
+        <strong>Warning:</strong> @_errorMessage — enter model name manually below.
+    </div>
+    <input type="text"
+           class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+           value="@SelectedModel"
+           @oninput="e => SelectedModelChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)"
+           placeholder="e.g. llama3.2" />
+}
+else if (_models is null)
+{
+    <span class="text-sm text-slate-500 italic">Loading models…</span>
+}
+else
+{
+    <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            value="@SelectedModel"
+            @onchange="e => SelectedModelChanged.InvokeAsync(e.Value?.ToString() ?? string.Empty)">
+        @foreach (var m in _models)
+        {
+            <option value="@m" selected="@(m == SelectedModel)">@m</option>
+        }
+    </select>
+}
+
+@code {
+    [Parameter] public string SelectedModel { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> SelectedModelChanged { get; set; }
+
+    private IReadOnlyList<string>? _models;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _models = await OllamaClient.ListModelsAsync();
+            if (_models.Count > 0 && string.IsNullOrEmpty(SelectedModel))
+                await SelectedModelChanged.InvokeAsync(_models[0]);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Could not reach Ollama: {ex.Message}";
+        }
+    }
+}
