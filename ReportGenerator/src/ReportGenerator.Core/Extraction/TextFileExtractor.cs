@@ -12,6 +12,6 @@ public sealed class TextFileExtractor : IContentExtractor
         if (string.IsNullOrWhiteSpace(content))
             throw new InvalidOperationException($"File is empty: {filePath}");
 
-        return content.Trim();
+        return ExamTextCleaner.Clean(content);
     }
 }

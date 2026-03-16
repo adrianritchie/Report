@@ -19,16 +19,24 @@ public sealed class PdfExtractor : IContentExtractor
         using var document = PdfDocument.Open(filePath);
         var sb = new System.Text.StringBuilder();
 
-        foreach (Page page in document.GetPages())
+        var pages = document.GetPages().ToList();
+
+        // Skip the first page (cover / title page).
+        foreach (var page in pages.Skip(1))
         {
-            sb.AppendLine(page.Text);
+            var cleaned = ExamTextCleaner.Clean(page.Text);
+            if (!string.IsNullOrWhiteSpace(cleaned))
+            {
+                sb.AppendLine(cleaned);
+            }
         }
 
         var result = sb.ToString().Trim();
         if (string.IsNullOrWhiteSpace(result))
             throw new InvalidOperationException(
                 $"No text could be extracted from PDF: {filePath}. " +
-                "The file may be scanned/image-based. Please use a text-based PDF or provide a .txt file.");
+                "The file may be scanned/image-based or contain only a cover page. " +
+                "Please use a text-based PDF or provide a .txt file.");
 
         return result;
     }
