@@ -1,0 +1,36 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch ReportGenerator.Web",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-web",
+      "program": "${workspaceFolder}/ReportGenerator/src/ReportGenerator.Web/bin/Debug/net10.0/ReportGenerator.Web.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/ReportGenerator/src/ReportGenerator.Web",
+      "stopAtEntry": false,
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+      },
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "sourceFileMap": {
+        "/Views": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Run Tests",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-tests",
+      "program": "${workspaceFolder}/ReportGenerator/tests/ReportGenerator.Tests/bin/Debug/net10.0/ReportGenerator.Tests.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/ReportGenerator/tests/ReportGenerator.Tests",
+      "stopAtEntry": false,
+      "env": {}
+    }
+  ]
+}
