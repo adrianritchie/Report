@@ -1,9 +1,9 @@
 # AGENTS.md — Agent Guide for This Repository
 
-This is a C# / .NET 10 CLI tool that generates teacher assessment reports via a local Ollama instance.
-It operates in **batch mode only**: it reads an exam paper PDF and a teacher feedback Excel spreadsheet,
-sends a structured prompt to Ollama for each student, and writes a single `reports_<timestamp>.xlsx`
-output file plus one `<n>.txt` prompt file per student.
+This is a C# / .NET 10 **Blazor Server** web application that generates teacher assessment reports
+via a local Ollama instance. The user uploads an exam paper (PDF/TXT) and a teacher feedback Excel
+spreadsheet, selects a model, edits the prompt, and watches per-student reports generate live in the
+browser. Completed reports can be downloaded as a single `reports_<timestamp>.xlsx` file.
 
 ---
 
@@ -11,53 +11,73 @@ output file plus one `<n>.txt` prompt file per student.
 
 ```
 ReportGenerator/
-├── ReportGenerator.slnx                     # solution (.NET 10 .slnx format)
-├── src/ReportGenerator/                     # main CLI project
-│   ├── ReportGenerator.csproj
-│   ├── Program.cs                           # CLI entry point (System.CommandLine 2.0.3)
-│   ├── appsettings.json                     # config template
-│   ├── Configuration/AppOptions.cs          # strongly-typed config
-│   ├── Ollama/                              # Ollama Chat API client
-│   ├── Extraction/                          # PDF + text extraction
-│   └── Report/                              # prompt builder + report writer
-└── tests/ReportGenerator.Tests/            # xUnit test project
+├── ReportGenerator.slnx                          # solution (.NET 10 .slnx format)
+├── src/
+│   ├── ReportGenerator.Core/                     # shared business logic class library
+│   │   ├── ReportGenerator.Core.csproj
+│   │   ├── Configuration/AppOptions.cs           # OllamaOptions, ReportOptions
+│   │   ├── Extraction/                           # PDF/text/Excel extractors + StudentRow
+│   │   ├── Ollama/                               # IOllamaClient, OllamaClient, OllamaModels
+│   │   └── Report/                               # PromptBuilder, ReportWriter
+│   └── ReportGenerator.Web/                      # Blazor Server web app
+│       ├── ReportGenerator.Web.csproj
+│       ├── Program.cs                            # DI wiring + /download/{token} endpoint
+│       ├── appsettings.json
+│       ├── Services/DownloadTokenStore.cs        # token → file path mapping
+│       ├── Models/Models.cs                      # ProgressEntry, ReportRow records
+│       └── Components/
+│           ├── App.razor / Routes.razor / _Imports.razor
+│           ├── Layout/MainLayout.razor
+│           └── Pages/
+│               ├── Home.razor                    # main orchestration page
+│               └── Components/
+│                   ├── ModelSelector.razor       # calls ListModelsAsync on init
+│                   ├── PromptEditor.razor
+│                   ├── FileUploadPanel.razor
+│                   ├── ProgressLog.razor
+│                   ├── ResultsTable.razor
+│                   └── DownloadButton.razor
+└── tests/ReportGenerator.Tests/                  # xUnit tests (33 tests)
 ```
 
 ---
 
 ## Build / Test Commands
 
-> **IMPORTANT — WSL / Windows hybrid environment.**
-> The `dotnet` executable is a Windows binary at `C:\Program Files\dotnet\dotnet.exe`.
-> All paths passed as arguments must use **Windows-style paths** (`C:\...`), not WSL paths (`/mnt/c/...`).
-> The executable is invoked from WSL as: `"/mnt/c/Program Files/dotnet/dotnet.exe"`
+> **IMPORTANT — environment note.**
+> `dotnet` is on the PATH as `/c/Program Files/dotnet/dotnet`. Use it directly as `dotnet`.
+> Pass **Windows-style paths** (forward or back slashes both work) as arguments.
 
-### Build
+### Build Core
 
 ```bash
-"/mnt/c/Program Files/dotnet/dotnet.exe" build "C:\\Source\\POC\\Report\\ReportGenerator\\src\\ReportGenerator\\ReportGenerator.csproj"
+dotnet build "D:/Projects/Reports/ReportGenerator/src/ReportGenerator.Core/ReportGenerator.Core.csproj"
 ```
 
-Expected: `Build succeeded. 0 Warning(s) 0 Error(s)`
+### Build Web
+
+```bash
+dotnet build "D:/Projects/Reports/ReportGenerator/src/ReportGenerator.Web/ReportGenerator.Web.csproj"
+```
 
 ### Run all tests
 
 ```bash
-"/mnt/c/Program Files/dotnet/dotnet.exe" test "C:\\Source\\POC\\Report\\ReportGenerator\\tests\\ReportGenerator.Tests\\ReportGenerator.Tests.csproj" --verbosity minimal
+dotnet test "D:/Projects/Reports/ReportGenerator/tests/ReportGenerator.Tests/ReportGenerator.Tests.csproj" --verbosity minimal
 ```
 
-Expected: `Passed! - Failed: 0, Passed: 31, ...`
+Expected: `Passed! - Failed: 0, Passed: 33, ...`
 
 ### Run a single test (by name substring)
 
 ```bash
-"/mnt/c/Program Files/dotnet/dotnet.exe" test "C:\\Source\\POC\\Report\\ReportGenerator\\tests\\ReportGenerator.Tests\\ReportGenerator.Tests.csproj" --filter "DisplayName~MyTestName"
+dotnet test "D:/Projects/Reports/ReportGenerator/tests/ReportGenerator.Tests/ReportGenerator.Tests.csproj" --filter "DisplayName~MyTestName"
 ```
 
 ### Restore packages (if needed)
 
 ```bash
-"/mnt/c/Program Files/dotnet/dotnet.exe" restore "C:\\Source\\POC\\Report\\ReportGenerator\\src\\ReportGenerator\\ReportGenerator.csproj"
+dotnet restore "D:/Projects/Reports/ReportGenerator/src/ReportGenerator.Core/ReportGenerator.Core.csproj"
 ```
 
 ---
@@ -66,12 +86,9 @@ Expected: `Passed! - Failed: 0, Passed: 31, ...`
 
 - **.NET 10.0.103** at `C:\Program Files\dotnet\dotnet.exe`
 - **Solution format**: `.slnx` (new in .NET 10, not `.sln`)
-- **`System.CommandLine` 2.0.3** — stable release. API differs from beta:
-  - `Option<T>` constructor: `new Option<T>("--name", new[] { "-n" })` — description goes in `option.Description`
-  - Entry point: `rootCommand.Parse(args).InvokeAsync()` (no `CommandLineConfiguration`)
-  - `SetAction` (not `SetHandler`), `parseResult.GetValue(option)`
 - **`PdfPig`** `0.1.13` (official NuGet package — replaces the former custom/forked packages)
 - **Ollama Chat API**: `POST /api/chat` with `{ model, messages, stream: false }` — no auth required (local only)
+- **Ollama Tags API**: `GET /api/tags` — returns available model names
 - **`TaskCanceledException`** is thrown by .NET when `HttpClient.Timeout` is exceeded (not `TimeoutException`)
 
 ---
