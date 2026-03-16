@@ -14,11 +14,55 @@
             <tbody class="divide-y divide-slate-100">
                 @foreach (var (row, index) in Rows.Select((r, i) => (r, i)))
                 {
-                    <tr class="@(index % 2 == 0 ? "bg-white" : "bg-slate-50") hover:bg-indigo-50 transition-colors">
+                    var isExpanded = _expanded.Contains(index);
+                    var rowBg = index % 2 == 0 ? "bg-white" : "bg-slate-50";
+
+                    @* ── Report row ── *@
+                    <tr class="@rowBg hover:bg-indigo-50 transition-colors align-top">
                         <td class="px-4 py-3 text-slate-500 font-mono text-xs">@row.SequenceNumber</td>
                         <td class="px-4 py-3 font-medium text-slate-800">@row.StudentName</td>
-                        <td class="px-4 py-3 text-slate-700 report-cell">@row.ReportText</td>
+                        <td class="px-4 py-3 text-slate-700">
+                            <div class="report-cell">@row.ReportText</div>
+                            <button class="mt-2 inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                                    @onclick="() => ToggleRow(index)">
+                                @if (isExpanded)
+                                {
+                                    @* chevron-down *@
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                    <span>Hide prompt</span>
+                                }
+                                else
+                                {
+                                    @* chevron-right *@
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                    <span>Show prompt</span>
+                                }
+                            </button>
+                        </td>
                     </tr>
+
+                    @* ── Collapsible prompt row ── *@
+                    @if (isExpanded)
+                    {
+                        <tr class="@rowBg border-t border-indigo-100">
+                            <td></td>
+                            <td colspan="2" class="px-4 pb-4 pt-2">
+                                <div class="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
+                                    <div class="flex items-center gap-2 px-3 py-2 bg-slate-100 border-b border-slate-200">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 0v12h8V4H6z" clip-rule="evenodd" />
+                                        </svg>
+                                        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Prompt sent to model</span>
+                                    </div>
+                                    <pre class="px-3 py-3 text-xs text-slate-600 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-80 overflow-y-auto">@row.PromptText</pre>
+                                </div>
+                            </td>
+                        </tr>
+                    }
                 }
             </tbody>
         </table>
@@ -27,4 +71,12 @@
 
 @code {
     [Parameter] public IReadOnlyList<ReportRow>? Rows { get; set; }
+
+    private readonly HashSet<int> _expanded = [];
+
+    private void ToggleRow(int index)
+    {
+        if (!_expanded.Add(index))
+            _expanded.Remove(index);
+    }
 }

@@ -20,4 +20,4 @@ public sealed record ProgressStep(
     string? Detail = null);
 
 /// <summary>A completed student report row shown in the results table.</summary>
-public sealed record ReportRow(int SequenceNumber, string StudentName, string ReportText);
+public sealed record ReportRow(int SequenceNumber, string StudentName, string ReportText, string PromptText);

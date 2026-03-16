@@ -419,7 +419,7 @@
                 if (reportText is not null)
                 {
                     writer.AddRow(i + 1, reportText);
-                    _reportRows.Add(new ReportRow(i + 1, student.FullName, reportText));
+                    _reportRows.Add(new ReportRow(i + 1, student.FullName, reportText, fullPrompt));
                     SetStep(studentStep, StepStatus.Done);
                     _doneStudents++;
                 }
