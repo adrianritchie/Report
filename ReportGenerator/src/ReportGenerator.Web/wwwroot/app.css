@@ -1,0 +1,8 @@
+/* Report Generator — Tailwind handles layout; only keep overrides that Tailwind cannot express inline */
+
+/* Preserve line breaks in generated report text */
+.report-cell {
+    white-space: pre-wrap;
+    max-width: 600px;
+    font-size: 0.9rem;
+}
