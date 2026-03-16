@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ReportGenerator\ReportGenerator.csproj" />
+    <ProjectReference Include="..\..\src\ReportGenerator.Core\ReportGenerator.Core.csproj" />
   </ItemGroup>
 
 </Project>
