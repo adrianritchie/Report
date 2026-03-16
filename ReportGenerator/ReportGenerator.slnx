@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/ReportGenerator/ReportGenerator.csproj" />
+    <Project Path="src/ReportGenerator.Core/ReportGenerator.Core.csproj" />
+    <Project Path="src/ReportGenerator.Web/ReportGenerator.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ReportGenerator.Tests/ReportGenerator.Tests.csproj" />
