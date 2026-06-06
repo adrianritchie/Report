@@ -35,10 +35,16 @@ public sealed class PromptBuilder
     /// <summary>
     /// Assembles the structured prompt sent to the Ollama Chat API.
     /// </summary>
+    /// <param name="examText">Exam paper text (or LLM-generated summary).</param>
+    /// <param name="responsesText">Student responses extracted from the spreadsheet.</param>
+    /// <param name="teacherPrompt">Teacher instructions / additional guidance.</param>
+    /// <param name="taskText">The [TASK] instruction that tells the LLM what to produce.</param>
+    /// <param name="studentName">Optional student name prepended as a [STUDENT] section.</param>
     public string Build(
         string examText,
         string responsesText,
         string teacherPrompt,
+        string taskText,
         string? studentName = null)
     {
         var sb = new System.Text.StringBuilder();
@@ -63,19 +69,7 @@ public sealed class PromptBuilder
         sb.AppendLine();
 
         sb.AppendLine("[TASK]");
-        sb.AppendLine(
-            "You are assisting a teacher. Using the exam paper and student responses above, " +
-            "write a concise, professional teacher assessment report suitable for a school report card. " +
-            "The report must include:" + Environment.NewLine +
-            "  1. An overall performance summary (2-3 sentences)." + Environment.NewLine +
-            "  2. Key strengths demonstrated by the student." + Environment.NewLine +
-            "  3. Specific areas for improvement with actionable suggestions." + Environment.NewLine +
-            "The report should not include:" + Environment.NewLine +
-            "  1. A recommended grade or mark with brief justification." + Environment.NewLine +
-            "Use formal but accessible language appropriate for sharing with parents and students. " +
-            "Do not invent facts not evidenced in the student's responses." + Environment.NewLine +
-            "Keep the report concise, ideally around 150 words." + Environment.NewLine +
-            "Where possible relate feedback to specific parts of the exam paper and student responses, but avoid excessive detail.");
+        sb.AppendLine(taskText.Trim());
 
         return sb.ToString();
     }

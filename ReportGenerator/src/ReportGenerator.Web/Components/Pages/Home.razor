@@ -34,6 +34,34 @@
             <PromptEditor @bind-Prompt="_prompt" />
         </div>
 
+        @* Task *@
+        <div class="border border-slate-200 rounded-lg overflow-hidden">
+            <button type="button"
+                    class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                    @onclick="() => _taskExpanded = !_taskExpanded">
+                <div>
+                    <span class="text-sm font-medium text-slate-700">Task Instructions</span>
+                    <span class="ml-2 text-xs text-slate-400">(click to @(_taskExpanded ? "collapse" : "expand"))</span>
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     class="h-4 w-4 text-slate-400 transition-transform @(_taskExpanded ? "rotate-180" : "")"
+                     viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+            </button>
+            @if (_taskExpanded)
+            {
+                <div class="px-4 py-3 border-t border-slate-200">
+                    <p class="text-xs text-slate-400 mb-2">Tells the model what to produce. Included verbatim as the <code class="bg-slate-100 px-1 rounded">[TASK]</code> section of every student prompt.</p>
+                    <textarea rows="8"
+                              class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
+                              @bind="_task"
+                              @bind:event="oninput">
+                    </textarea>
+                </div>
+            }
+        </div>
+
         @* Files *@
         <div>
             <label class="block text-sm font-medium text-slate-700 mb-1.5">Upload Files</label>
@@ -182,6 +210,8 @@
 
     private string _selectedModel = string.Empty;
     private string _prompt = string.Empty;
+    private string _task = string.Empty;
+    private bool _taskExpanded;
 
     private string? _examFileName;
     private byte[]? _examData;
@@ -215,6 +245,7 @@
     protected override void OnInitialized()
     {
         _prompt = ReportOptions.DefaultPrompt;
+        _task = ReportOptions.DefaultTask;
         _selectedModel = OllamaOptions.Model;
     }
 
@@ -363,7 +394,11 @@
                     ? ReportOptions.DefaultPrompt
                     : _prompt;
 
-                var fullPrompt = PromptBuilder.Build(examContext, responsesText, effectivePrompt, student.FullName);
+                var effectiveTask = string.IsNullOrWhiteSpace(_task)
+                    ? ReportOptions.DefaultTask
+                    : _task;
+
+                var fullPrompt = PromptBuilder.Build(examContext, responsesText, effectivePrompt, effectiveTask, student.FullName);
 
                 // Write prompt file
                 var promptFile = Path.Combine(tempDir, $"{i + 1}.txt");

@@ -6,6 +6,8 @@ public sealed class PromptBuilderTests
 {
     private readonly PromptBuilder _builder = new();
 
+    private const string SampleTask = "Write a concise report.";
+
     // ── BuildExamSummaryPrompt ────────────────────────────────────────────────
 
     [Fact]
@@ -50,7 +52,7 @@ public sealed class PromptBuilderTests
     [Fact]
     public void Build_ContainsAllSections()
     {
-        var result = _builder.Build("exam", "responses", "instructions", "Alice");
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask, "Alice");
         Assert.Contains("[STUDENT]", result);
         Assert.Contains("[EXAM PAPER]", result);
         Assert.Contains("[STUDENT RESPONSES]", result);
@@ -59,30 +61,38 @@ public sealed class PromptBuilderTests
     }
 
     [Fact]
+    public void Build_ContainsProvidedTaskText()
+    {
+        const string task = "Produce a haiku summarising the student's performance.";
+        var result = _builder.Build("exam", "responses", "instructions", task);
+        Assert.Contains(task, result);
+    }
+
+    [Fact]
     public void Build_OmitsStudentSection_WhenNameIsNull()
     {
-        var result = _builder.Build("exam", "responses", "instructions", studentName: null);
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask, studentName: null);
         Assert.DoesNotContain("[STUDENT]", result);
     }
 
     [Fact]
     public void Build_OmitsStudentSection_WhenNameIsWhitespace()
     {
-        var result = _builder.Build("exam", "responses", "instructions", studentName: "  ");
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask, studentName: "  ");
         Assert.DoesNotContain("[STUDENT]", result);
     }
 
     [Fact]
     public void Build_ContainsStudentName_WhenProvided()
     {
-        var result = _builder.Build("exam", "responses", "instructions", "Bob Smith");
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask, "Bob Smith");
         Assert.Contains("Bob Smith", result);
     }
 
     [Fact]
     public void Build_ContainsExamAndResponsesText()
     {
-        var result = _builder.Build("question about photosynthesis", "student said X", "write a report");
+        var result = _builder.Build("question about photosynthesis", "student said X", "write a report", SampleTask);
         Assert.Contains("question about photosynthesis", result);
         Assert.Contains("student said X", result);
         Assert.Contains("write a report", result);
