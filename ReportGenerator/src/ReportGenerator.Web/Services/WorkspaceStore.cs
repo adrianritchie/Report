@@ -71,7 +71,7 @@ public sealed class WorkspaceStore
                 ? $"Workspace {DateTimeOffset.Now:yyyy-MM-dd HHmm}"
                 : name.Trim();
 
-            EnsureUniqueName(trimmedName, null);
+            EnsureUniqueName(trimmedName, kind, null);
 
             var id = Guid.NewGuid().ToString("N");
             var now = DateTimeOffset.UtcNow;
@@ -127,12 +127,55 @@ public sealed class WorkspaceStore
             if (string.IsNullOrWhiteSpace(trimmed))
                 throw new InvalidOperationException("Workspace name cannot be empty.");
 
-            EnsureUniqueName(trimmed, workspaceId);
+            EnsureUniqueName(trimmed, state.Kind, workspaceId);
             state.Name = trimmed;
             state.UpdatedUtc = DateTimeOffset.UtcNow;
             await SaveStateAsync(state);
             await CreateVersionInternalAsync(state, "workspace_renamed");
             return state;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task<WorkspaceState> CloneAsync(string sourceWorkspaceId, string newName)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            var source = await LoadStateAsync(sourceWorkspaceId);
+            var trimmedName = string.IsNullOrWhiteSpace(newName)
+                ? $"{source.Name} Copy"
+                : newName.Trim();
+
+            EnsureUniqueName(trimmedName, source.Kind, null);
+
+            var now = DateTimeOffset.UtcNow;
+            var clone = new WorkspaceState
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = trimmedName,
+                Kind = source.Kind,
+                CreatedUtc = now,
+                UpdatedUtc = now,
+                SelectedModel = source.SelectedModel,
+                Prompt = source.Prompt,
+                Task = source.Task,
+                Examples = Clone(source.Examples),
+            };
+
+            var workspacePath = GetWorkspacePath(clone.Id);
+            Directory.CreateDirectory(workspacePath);
+            Directory.CreateDirectory(Path.Combine(workspacePath, "versions"));
+            Directory.CreateDirectory(Path.Combine(workspacePath, "exam"));
+            Directory.CreateDirectory(Path.Combine(workspacePath, "sheet"));
+            Directory.CreateDirectory(Path.Combine(workspacePath, "reports"));
+
+            await SaveStateAsync(clone);
+            await CreateVersionInternalAsync(clone, "workspace_cloned");
+            return clone;
         }
         finally
         {
@@ -626,7 +669,7 @@ public sealed class WorkspaceStore
         if (lines.Count == 0)
             lines.Add("No results analysis changes.");
 
-        return new WorkspaceDiffSection { Title = "Results Analysis", Lines = lines };
+        return new WorkspaceDiffSection { Title = "Results Reports", Lines = lines };
     }
 
     private static IEnumerable<string> BuildTextChanges(string title, string? previous, string? current)
@@ -713,7 +756,7 @@ public sealed class WorkspaceStore
         await JsonSerializer.SerializeAsync(stream, value, JsonOptions);
     }
 
-    private void EnsureUniqueName(string name, string? ignoreWorkspaceId)
+    private void EnsureUniqueName(string name, string kind, string? ignoreWorkspaceId)
     {
         foreach (var dir in Directory.GetDirectories(_rootPath))
         {
@@ -727,6 +770,9 @@ public sealed class WorkspaceStore
                 continue;
 
             if (string.Equals(state.Id, ignoreWorkspaceId, StringComparison.Ordinal))
+                continue;
+
+            if (!string.Equals(state.Kind, kind, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             if (string.Equals(state.Name, name, StringComparison.OrdinalIgnoreCase))

@@ -17,40 +17,17 @@
     <div class="flex flex-col gap-4">
         <div class="flex flex-wrap items-end gap-3">
             <div class="min-w-64 flex-1">
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">Current Workspace</label>
-                <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                        value="@_selectedWorkspaceId"
-                        @onchange="OnWorkspaceChanged">
-                    @foreach (var ws in _workspaces)
-                    {
-                        <option value="@ws.Id">@ws.Name (v@ws.CurrentVersion)</option>
-                    }
-                </select>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Workspace Name</label>
+                <span class="text-xs text-slate-500">Version @(_workspace?.CurrentVersion ?? 0)</span>
+                <input class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                       @bind="_workspaceNameDraft"
+                       @bind:event="oninput" />
             </div>
-            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-lg text-sm"
-                    @onclick="CreateWorkspaceAsync">
-                Create Workspace
-            </button>
             <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2.5 rounded-lg text-sm"
                     @onclick="RenameWorkspaceAsync"
                     disabled="@(_workspace is null)">
                 Rename
             </button>
-            <button class="inline-flex items-center gap-2 border border-rose-300 text-rose-700 hover:bg-rose-50 font-medium px-4 py-2.5 rounded-lg text-sm"
-                    @onclick="DeleteWorkspaceAsync"
-                    disabled="@(_workspace is null || _workspaces.Count <= 1)">
-                Delete
-            </button>
-        </div>
-
-        <div class="flex flex-wrap items-end gap-3">
-            <div class="min-w-64 flex-1">
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">Workspace Name</label>
-                <input class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                       @bind="_workspaceNameDraft"
-                       @bind:event="oninput" />
-            </div>
-            <span class="text-xs text-slate-500">Version @(_workspace?.CurrentVersion ?? 0)</span>
         </div>
     </div>
 </div>
@@ -325,14 +302,29 @@
     private readonly List<ReportRow> _reportRows = [];
     private int _totalStudents;
     private int _doneStudents;
+    private bool _initAttempted;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadWorkspacesAsync();
+        try
+        {
+            await LoadWorkspacesAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _initAttempted = true;
+        }
     }
 
     protected override async Task OnParametersSetAsync()
     {
+        if (!_initAttempted)
+            return;
+
         if (_workspace is not null && string.Equals(_workspace.Id, WorkspaceId, StringComparison.Ordinal))
             return;
 
@@ -343,8 +335,15 @@
         if (!string.IsNullOrWhiteSpace(requested)
             && _workspaces.Any(w => string.Equals(w.Id, requested, StringComparison.Ordinal)))
         {
-            _selectedWorkspaceId = requested;
-            await LoadWorkspaceAsync(requested);
+            try
+            {
+                _selectedWorkspaceId = requested;
+                await LoadWorkspaceAsync(requested);
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = ex.Message;
+            }
         }
     }
 
@@ -423,27 +422,6 @@
         await LoadWorkspaceAsync(id);
     }
 
-    private async Task CreateWorkspaceAsync()
-    {
-        _errorMessage = null;
-        try
-        {
-            var created = await WorkspaceStore.CreateAsync(
-                $"Workspace {DateTimeOffset.Now:yyyy-MM-dd HHmm}",
-                WorkspaceKind,
-                _selectedModel,
-                _prompt,
-                _task);
-
-            await LoadWorkspacesAsync();
-            await LoadWorkspaceAsync(created.Id);
-        }
-        catch (Exception ex)
-        {
-            _errorMessage = ex.Message;
-        }
-    }
-
     private async Task RenameWorkspaceAsync()
     {
         if (_workspace is null)
@@ -460,17 +438,6 @@
         {
             _errorMessage = ex.Message;
         }
-    }
-
-    private async Task DeleteWorkspaceAsync()
-    {
-        if (_workspace is null || _workspaces.Count <= 1)
-            return;
-
-        var id = _workspace.Id;
-        await WorkspaceStore.DeleteAsync(id);
-        _selectedWorkspaceId = _workspaces.FirstOrDefault(w => w.Id != id)?.Id;
-        await LoadWorkspacesAsync();
     }
 
     private Task OnExamplesChanged(IReadOnlyList<ExampleReport> examples)

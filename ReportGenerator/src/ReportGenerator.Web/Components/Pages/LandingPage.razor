@@ -52,7 +52,9 @@
                         <span class="text-sm font-semibold text-slate-700">@ws.Name</span>
                         <span class="text-xs text-slate-500">v@ws.CurrentVersion</span>
                         <span class="text-xs text-slate-400">Updated @ws.UpdatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</span>
-                        <button class="ml-auto text-sm text-indigo-700 hover:text-indigo-900 font-medium" @onclick="() => OpenFeedbackWorkspace(ws.Id)">Open</button>
+                        <button class="ml-auto text-xs text-slate-700 hover:text-slate-900 font-medium" @onclick="() => CloneWorkspaceAsync(ws.Id)">Clone</button>
+                        <button class="text-xs text-rose-700 hover:text-rose-900 font-medium" @onclick="() => DeleteWorkspaceAsync(ws.Id)">Delete</button>
+                        <button class="text-sm text-indigo-700 hover:text-indigo-900 font-medium" @onclick="() => OpenFeedbackWorkspace(ws.Id)">Open</button>
                     </div>
                 }
             </div>
@@ -62,7 +64,7 @@
     <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
         <div class="flex items-center justify-between gap-3 mb-4">
             <div>
-                <h3 class="text-sm font-semibold text-slate-800">Results Analysis Workspaces</h3>
+                <h3 class="text-sm font-semibold text-slate-800">Results Reports Workspaces</h3>
                 <p class="text-xs text-slate-500">Use these for marks/results spreadsheet workflows.</p>
             </div>
             <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
@@ -88,7 +90,9 @@
                         <span class="text-sm font-semibold text-slate-700">@ws.Name</span>
                         <span class="text-xs text-slate-500">v@ws.CurrentVersion</span>
                         <span class="text-xs text-slate-400">Updated @ws.UpdatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</span>
-                        <button class="ml-auto text-sm text-indigo-700 hover:text-indigo-900 font-medium" @onclick="() => OpenResultsWorkspace(ws.Id)">Open</button>
+                        <button class="ml-auto text-xs text-slate-700 hover:text-slate-900 font-medium" @onclick="() => CloneWorkspaceAsync(ws.Id)">Clone</button>
+                        <button class="text-xs text-rose-700 hover:text-rose-900 font-medium" @onclick="() => DeleteWorkspaceAsync(ws.Id)">Delete</button>
+                        <button class="text-sm text-indigo-700 hover:text-indigo-900 font-medium" @onclick="() => OpenResultsWorkspace(ws.Id)">Open</button>
                     </div>
                 }
             </div>
@@ -139,7 +143,55 @@
                 ReportOptions.DefaultPrompt,
                 ReportOptions.DefaultTask);
 
-            Navigation.NavigateTo($"{route}?workspaceId={Uri.EscapeDataString(created.Id)}");
+            Navigation.NavigateTo($"{route}?workspaceId={Uri.EscapeDataString(created.Id)}", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task CloneWorkspaceAsync(string workspaceId)
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            var source = await WorkspaceStore.GetAsync(workspaceId);
+            var clone = await WorkspaceStore.CloneAsync(workspaceId, $"{source.Name} Copy");
+
+            await RefreshAsync();
+            if (string.Equals(clone.Kind, WorkspaceKinds.Feedback, StringComparison.OrdinalIgnoreCase))
+            {
+                Navigation.NavigateTo($"/feedback?workspaceId={Uri.EscapeDataString(clone.Id)}", forceLoad: true);
+            }
+            else
+            {
+                Navigation.NavigateTo($"/results?workspaceId={Uri.EscapeDataString(clone.Id)}", forceLoad: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private async Task DeleteWorkspaceAsync(string workspaceId)
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            await WorkspaceStore.DeleteAsync(workspaceId);
+            await RefreshAsync();
         }
         catch (Exception ex)
         {
@@ -153,7 +205,7 @@
 
     private void OpenWorkspace(string route, string workspaceId)
     {
-        Navigation.NavigateTo($"{route}?workspaceId={Uri.EscapeDataString(workspaceId)}");
+        Navigation.NavigateTo($"{route}?workspaceId={Uri.EscapeDataString(workspaceId)}", forceLoad: true);
     }
 
     private void OpenFeedbackWorkspace(string workspaceId) => OpenWorkspace("/feedback", workspaceId);
