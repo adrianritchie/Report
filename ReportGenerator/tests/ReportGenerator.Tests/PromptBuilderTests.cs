@@ -1,3 +1,4 @@
+using ReportGenerator.Extraction;
 using ReportGenerator.Report;
 
 namespace ReportGenerator.Tests;
@@ -96,5 +97,118 @@ public sealed class PromptBuilderTests
         Assert.Contains("question about photosynthesis", result);
         Assert.Contains("student said X", result);
         Assert.Contains("write a report", result);
+    }
+}
+
+// ── BuildResultsPrompt ────────────────────────────────────────────────────────
+
+public sealed class BuildResultsPromptTests
+{
+    private readonly PromptBuilder _builder = new();
+
+    private const string SampleTask = "Write a concise results report.";
+
+    private static ResultsRow MakeRow(
+        string studentNumber = "12345",
+        string studentClass  = "10A",
+        int?   total         = 85,
+        double? percentage   = 72.5,
+        int?   rank          = 4,
+        IReadOnlyList<QuestionMark>? marks = null)
+    {
+        marks ??= new[]
+        {
+            new QuestionMark("1a", 2, 3),
+            new QuestionMark("1b", 4, 4),
+            new QuestionMark("2",  null, 5),  // not attempted
+        };
+
+        return new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_IncludesStudentSection()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("exam context", row, "instructions", SampleTask);
+
+        Assert.Contains("[STUDENT]", result);
+        Assert.Contains("Jane",    result);
+        Assert.Contains("12345",   result);
+        Assert.Contains("10A",     result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_IncludesExamPaperSection()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("photosynthesis exam content", row, "instructions", SampleTask);
+
+        Assert.Contains("[EXAM PAPER]", result);
+        Assert.Contains("photosynthesis exam content", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_IncludesStudentResultsSection()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask);
+
+        Assert.Contains("[STUDENT RESULTS]", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_FormatsAttemptedMarksCorrectly()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask);
+
+        // Q1a: 2 / 3 and Q1b: 4 / 4
+        Assert.Contains("Q1a: 2 / 3", result);
+        Assert.Contains("Q1b: 4 / 4", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_ShowsNotAttempted_ForNullMark()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask);
+
+        // Q2 has a null StudentMark
+        Assert.Contains("Q2: not attempted", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_IncludesTotalLine_WhenPresent()
+    {
+        var row = MakeRow(total: 85, percentage: 72.5, rank: 4);
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask);
+
+        Assert.Contains("Total: 85",      result);
+        Assert.Contains("Percentage: 72.5%", result);
+        Assert.Contains("Rank in year: 4", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_OmitsTotalLine_WhenAllNull()
+    {
+        var row = MakeRow(total: null, percentage: null, rank: null);
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask);
+
+        Assert.DoesNotContain("Total:",        result);
+        Assert.DoesNotContain("Percentage:",   result);
+        Assert.DoesNotContain("Rank in year:", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_IncludesTeacherInstructionsAndTask()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("exam", row, "focus on algebra", SampleTask);
+
+        Assert.Contains("[TEACHER INSTRUCTIONS]", result);
+        Assert.Contains("focus on algebra",       result);
+        Assert.Contains("[TASK]",                 result);
+        Assert.Contains(SampleTask,               result);
     }
 }

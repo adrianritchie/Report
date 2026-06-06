@@ -1,0 +1,523 @@
+@page "/results"
+@rendermode InteractiveServer
+
+@using ReportGenerator.Configuration
+@using ReportGenerator.Extraction
+@using ReportGenerator.Ollama
+@using ReportGenerator.Report
+@using ReportGenerator.Web.Models
+@using ReportGenerator.Web.Services
+
+@inject IOllamaClient OllamaClient
+@inject IContentExtractor ContentExtractor
+@inject IResultsExtractor ResultsExtractor
+@inject PromptBuilder PromptBuilder
+@inject OllamaOptions OllamaOptions
+@inject ReportOptions ReportOptions
+@inject DownloadTokenStore DownloadTokenStore
+
+@* ── Config card ─────────────────────────────────────────────────────────── *@
+<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Configuration</h2>
+
+    <div class="grid grid-cols-1 gap-5">
+
+        @* Model *@
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Model</label>
+            <ModelSelector @bind-SelectedModel="_selectedModel" />
+        </div>
+
+        @* Prompt *@
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Teacher Instructions</label>
+            <PromptEditor @bind-Prompt="_prompt" />
+        </div>
+
+        @* Task *@
+        <div class="border border-slate-200 rounded-lg overflow-hidden">
+            <button type="button"
+                    class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                    @onclick="() => _taskExpanded = !_taskExpanded">
+                <div>
+                    <span class="text-sm font-medium text-slate-700">Task Instructions</span>
+                    <span class="ml-2 text-xs text-slate-400">(click to @(_taskExpanded ? "collapse" : "expand"))</span>
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     class="h-4 w-4 text-slate-400 transition-transform @(_taskExpanded ? "rotate-180" : "")"
+                     viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+            </button>
+            @if (_taskExpanded)
+            {
+                <div class="px-4 py-3 border-t border-slate-200">
+                    <p class="text-xs text-slate-400 mb-2">Tells the model what to produce. Included verbatim as the <code class="bg-slate-100 px-1 rounded">[TASK]</code> section of every student prompt.</p>
+                    <textarea rows="8"
+                              class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
+                              @bind="_task"
+                              @bind:event="oninput">
+                    </textarea>
+                </div>
+            }
+        </div>
+
+        @* Files *@
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">Upload Files</label>
+            <FileUploadPanel ExamFileChanged="OnExamFileChanged"
+                             SheetFileChanged="OnSheetFileChanged"
+                             SheetLabel="Results Spreadsheet"
+                             SheetHint="XLSX — 3-row header format" />
+        </div>
+
+    </div>
+</div>
+
+@* ── Error banner ─────────────────────────────────────────────────────────── *@
+@if (_errorMessage is not null)
+{
+    <div class="flex items-start gap-3 border-l-4 border-red-500 bg-red-50 text-red-800 px-4 py-3 rounded-r-xl mb-4 text-sm">
+        <svg class="w-4 h-4 mt-0.5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.25a.75.75 0 011.5 0v4.5a.75.75 0 01-1.5 0v-4.5zm.75 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+        </svg>
+        <span>@_errorMessage</span>
+    </div>
+}
+
+@* ── Action buttons ───────────────────────────────────────────────────────── *@
+<div class="flex items-center gap-3 mb-6">
+    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm shadow-sm"
+            @onclick="OnGenerateClicked"
+            disabled="@(_isGenerating || _examData is null || _sheetData is null)">
+        @if (_isGenerating)
+        {
+            <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+            <span>Generating…</span>
+        }
+        else
+        {
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+            </svg>
+            <span>Generate Reports</span>
+        }
+    </button>
+
+    @if (_isGenerating)
+    {
+        <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-100 font-medium px-5 py-2.5 rounded-lg transition-colors text-sm"
+                @onclick="OnCancelClicked">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
+            </svg>
+            Cancel
+        </button>
+    }
+</div>
+
+@* ── Progress timeline ────────────────────────────────────────────────────── *@
+@if (_progressSteps.Count > 0)
+{
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Progress</h2>
+        <ProgressLog Steps="_progressSteps" TotalStudents="_totalStudents" DoneStudents="_doneStudents" />
+    </div>
+}
+
+@* ── Exam summary review panel ────────────────────────────────────────────── *@
+@if (_awaitingReview)
+{
+    <div class="bg-white rounded-2xl shadow-sm border border-indigo-200 p-6 mb-6">
+        <div class="flex items-center gap-2 mb-1">
+            <svg class="w-4 h-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+            </svg>
+            <h2 class="text-sm font-semibold text-slate-700">Review Exam Summary</h2>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">
+            This summary was extracted from the exam paper and will be used as context for each student report.
+            Edit it if needed, then click <strong>Continue</strong> to begin generating reports.
+        </p>
+
+        @if (_summaryWasFallback)
+        {
+            <div class="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-lg mb-3">
+                <svg class="w-3.5 h-3.5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                </svg>
+                Summarisation failed — showing raw exam text as fallback. You may edit before continuing.
+            </div>
+        }
+
+        <textarea class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-xs font-mono text-slate-700 shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  rows="14"
+                  @bind="_examSummaryEditable"
+                  @bind:event="oninput">
+        </textarea>
+
+        <div class="flex items-center gap-3 mt-4">
+            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm shadow-sm"
+                    @onclick="OnReviewContinueClicked">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                </svg>
+                Continue — Generate Reports
+            </button>
+            <span class="text-xs text-slate-400">Any edits you make above will be used in the student prompts.</span>
+        </div>
+    </div>
+}
+
+@* ── Retry banner ─────────────────────────────────────────────────────────── *@
+@if (_retryStudentName is not null)
+{
+    <div class="flex items-center gap-4 bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl mb-4 text-sm">
+        <svg class="w-5 h-5 flex-shrink-0 text-amber-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+        </svg>
+        <span>Generation failed for <strong>@_retryStudentName</strong>. Retry?</span>
+        <div class="flex gap-2 ml-auto">
+            <button class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-1.5 rounded-lg text-xs transition-colors"
+                    @onclick="() => OnRetryDecision(true)">
+                Retry
+            </button>
+            <button class="border border-amber-300 text-amber-700 hover:bg-amber-100 font-medium px-4 py-1.5 rounded-lg text-xs transition-colors"
+                    @onclick="() => OnRetryDecision(false)">
+                Skip
+            </button>
+        </div>
+    </div>
+}
+
+@* ── Results table ────────────────────────────────────────────────────────── *@
+@if (_reportRows.Count > 0)
+{
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100">
+            <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Results</h2>
+        </div>
+        <ResultsTable Rows="_reportRows" />
+    </div>
+}
+
+@* ── Download button ──────────────────────────────────────────────────────── *@
+<DownloadButton Token="_downloadToken" />
+
+@code {
+    // ── state ─────────────────────────────────────────────────────────────────
+
+    private string _selectedModel = string.Empty;
+    private string _prompt = string.Empty;
+    private string _task = string.Empty;
+    private bool _taskExpanded;
+
+    private string? _examFileName;
+    private byte[]? _examData;
+    private string? _sheetFileName;
+    private byte[]? _sheetData;
+
+    private bool _isGenerating;
+    private string? _errorMessage;
+    private string? _downloadToken;
+
+    private readonly List<ProgressStep> _progressSteps = [];
+    private readonly List<ReportRow> _reportRows = [];
+
+    private int _totalStudents;
+    private int _doneStudents;
+
+    // exam summary review
+    private bool _awaitingReview;
+    private bool _summaryWasFallback;
+    private string _examSummaryEditable = string.Empty;
+    private TaskCompletionSource<string>? _reviewTcs;
+
+    // per-student retry support
+    private string? _retryStudentName;
+    private TaskCompletionSource<bool>? _retryCts;
+
+    private CancellationTokenSource? _generationCts;
+
+    // ── lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        _prompt = ReportOptions.DefaultPrompt;
+        _task = ReportOptions.DefaultTask;
+        _selectedModel = OllamaOptions.Model;
+    }
+
+    // ── file upload handlers ──────────────────────────────────────────────────
+
+    private void OnExamFileChanged((string FileName, byte[] Data) args)
+    {
+        _examFileName = args.FileName;
+        _examData = args.Data;
+        _errorMessage = null;
+    }
+
+    private void OnSheetFileChanged((string FileName, byte[] Data) args)
+    {
+        _sheetFileName = args.FileName;
+        _sheetData = args.Data;
+        _errorMessage = null;
+    }
+
+    // ── generation ────────────────────────────────────────────────────────────
+
+    private async Task OnGenerateClicked()
+    {
+        if (_examData is null || _sheetData is null) return;
+
+        _isGenerating = true;
+        _errorMessage = null;
+        _downloadToken = null;
+        _progressSteps.Clear();
+        _reportRows.Clear();
+        _totalStudents = 0;
+        _doneStudents = 0;
+        _awaitingReview = false;
+        _summaryWasFallback = false;
+        _examSummaryEditable = string.Empty;
+        _generationCts = new CancellationTokenSource();
+        var ct = _generationCts.Token;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"reportgen_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        string? examTempPath = null;
+        string? sheetTempPath = null;
+
+        try
+        {
+            // Save uploaded files to temp paths
+            var examExt = Path.GetExtension(_examFileName ?? ".pdf");
+            examTempPath = Path.Combine(tempDir, $"exam{examExt}");
+            await File.WriteAllBytesAsync(examTempPath, _examData, ct);
+
+            sheetTempPath = Path.Combine(tempDir, "sheet.xlsx");
+            await File.WriteAllBytesAsync(sheetTempPath, _sheetData, ct);
+
+            // Step: extract exam
+            var extractStep = AddStep("Extracting exam paper");
+            await InvokeAsync(StateHasChanged);
+
+            string examText;
+            try
+            {
+                examText = await ContentExtractor.ExtractAsync(examTempPath, ct);
+                SetStep(extractStep, StepStatus.Done);
+            }
+            catch (Exception ex)
+            {
+                SetStep(extractStep, StepStatus.Failed, ex.Message);
+                _errorMessage = $"Failed to read exam file: {ex.Message}";
+                return;
+            }
+
+            // Step: load results spreadsheet
+            var loadStep = AddStep("Loading results spreadsheet");
+            await InvokeAsync(StateHasChanged);
+
+            IReadOnlyList<ResultsRow> students;
+            try
+            {
+                students = ResultsExtractor.Extract(sheetTempPath);
+                SetStep(loadStep, StepStatus.Done, $"{students.Count} student(s) found");
+            }
+            catch (Exception ex)
+            {
+                SetStep(loadStep, StepStatus.Failed, ex.Message);
+                _errorMessage = $"Failed to read results spreadsheet: {ex.Message}";
+                return;
+            }
+
+            // Step: summarise exam paper via LLM
+            OllamaOptions.Model = _selectedModel;
+            var summaryStep = AddStep("Summarising exam paper");
+            await InvokeAsync(StateHasChanged);
+
+            string examContext;
+            try
+            {
+                var summaryPrompt = PromptBuilder.BuildExamSummaryPrompt(examText);
+                var summary = await OllamaClient.SendPromptAsync(summaryPrompt, ct);
+                examContext = summary;
+                _summaryWasFallback = false;
+                SetStep(summaryStep, StepStatus.Done, "Review the summary below before continuing");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                examContext = examText;
+                _summaryWasFallback = true;
+                SetStep(summaryStep, StepStatus.Done, $"Summarisation failed — using raw text ({ex.Message})");
+            }
+
+            // Pause for teacher to review / edit the summary
+            _examSummaryEditable = examContext;
+            _awaitingReview = true;
+            _reviewTcs = new TaskCompletionSource<string>();
+            await InvokeAsync(StateHasChanged);
+
+            // Await teacher confirmation; result is the (possibly edited) summary text
+            examContext = await _reviewTcs.Task;
+            _awaitingReview = false;
+            await InvokeAsync(StateHasChanged);
+
+            if (ct.IsCancellationRequested) return;
+
+            _totalStudents = students.Count;
+            await InvokeAsync(StateHasChanged);
+
+            using var writer = new ReportWriter();
+
+            for (var i = 0; i < students.Count; i++)
+            {
+                if (ct.IsCancellationRequested) break;
+
+                var student = students[i];
+                // Display name uses student number and class; "Jane" placeholder is embedded in the prompt.
+                var displayName = $"{student.StudentNumber} / {student.Class}";
+                var studentStep = AddStep(displayName, StepStatus.InProgress);
+                await InvokeAsync(StateHasChanged);
+
+                var effectivePrompt = string.IsNullOrWhiteSpace(_prompt)
+                    ? ReportOptions.DefaultPrompt
+                    : _prompt;
+
+                var effectiveTask = string.IsNullOrWhiteSpace(_task)
+                    ? ReportOptions.DefaultTask
+                    : _task;
+
+                var fullPrompt = PromptBuilder.BuildResultsPrompt(examContext, student, effectivePrompt, effectiveTask);
+
+                // Write prompt file for inspection
+                var promptFile = Path.Combine(tempDir, $"{i + 1}.txt");
+                await File.WriteAllTextAsync(promptFile, fullPrompt, ct);
+
+                OllamaOptions.Model = _selectedModel;
+
+                // Try up to 3 times (attempt 3 asks user)
+                string? reportText = null;
+                for (var attempt = 1; attempt <= 3; attempt++)
+                {
+                    if (ct.IsCancellationRequested) break;
+
+                    if (attempt == 3)
+                    {
+                        _retryStudentName = displayName;
+                        _retryCts = new TaskCompletionSource<bool>();
+                        await InvokeAsync(StateHasChanged);
+
+                        var retry = await _retryCts.Task;
+                        _retryStudentName = null;
+                        _retryCts = null;
+
+                        if (!retry)
+                        {
+                            SetStep(studentStep, StepStatus.Skipped);
+                            _doneStudents++;
+                            break;
+                        }
+                    }
+
+                    try
+                    {
+                        reportText = await OllamaClient.SendPromptAsync(fullPrompt, ct);
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception) when (attempt < 3)
+                    {
+                        SetStep(studentStep, StepStatus.InProgress, $"Attempt {attempt} failed — retrying…");
+                        await InvokeAsync(StateHasChanged);
+                        await Task.Delay(600, ct);
+                        SetStep(studentStep, StepStatus.InProgress);
+                    }
+                }
+
+                if (reportText is not null)
+                {
+                    writer.AddRow(i + 1, reportText);
+                    _reportRows.Add(new ReportRow(i + 1, displayName, reportText, fullPrompt));
+                    SetStep(studentStep, StepStatus.Done);
+                    _doneStudents++;
+                }
+
+                await InvokeAsync(StateHasChanged);
+            }
+
+            if (_reportRows.Count > 0)
+            {
+                var savedPath = await writer.SaveAsync(tempDir, ct);
+                _downloadToken = DownloadTokenStore.Register(savedPath);
+            }
+            else
+            {
+                AddStep("No reports were generated", StepStatus.Failed);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AddStep("Generation cancelled", StepStatus.Failed);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            if (examTempPath is not null) TryDelete(examTempPath);
+            if (sheetTempPath is not null) TryDelete(sheetTempPath);
+
+            _awaitingReview = false;
+            _isGenerating = false;
+            _generationCts?.Dispose();
+            _generationCts = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OnCancelClicked()
+    {
+        _generationCts?.Cancel();
+        _retryCts?.TrySetCanceled();
+        _reviewTcs?.TrySetCanceled();
+    }
+
+    private void OnReviewContinueClicked()
+        => _reviewTcs?.TrySetResult(_examSummaryEditable);
+
+    private void OnRetryDecision(bool retry)
+        => _retryCts?.TrySetResult(retry);
+
+    // ── step helpers ──────────────────────────────────────────────────────────
+
+    /// <summary>Appends a new step and returns its index.</summary>
+    private int AddStep(string label, StepStatus status = StepStatus.Pending, string? detail = null)
+    {
+        _progressSteps.Add(new ProgressStep(label, status, detail));
+        return _progressSteps.Count - 1;
+    }
+
+    /// <summary>Updates an existing step in place.</summary>
+    private void SetStep(int index, StepStatus status, string? detail = null)
+        => _progressSteps[index] = _progressSteps[index] with { Status = status, Detail = detail };
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { /* best-effort */ }
+    }
+}

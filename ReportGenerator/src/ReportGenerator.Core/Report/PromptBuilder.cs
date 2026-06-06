@@ -1,3 +1,5 @@
+using ReportGenerator.Extraction;
+
 namespace ReportGenerator.Report;
 
 public sealed class PromptBuilder
@@ -62,6 +64,61 @@ public sealed class PromptBuilder
 
         sb.AppendLine("[STUDENT RESPONSES]");
         sb.AppendLine(responsesText.Trim());
+        sb.AppendLine();
+
+        sb.AppendLine("[TEACHER INSTRUCTIONS]");
+        sb.AppendLine(teacherPrompt.Trim());
+        sb.AppendLine();
+
+        sb.AppendLine("[TASK]");
+        sb.AppendLine(taskText.Trim());
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Assembles the structured prompt sent to the Ollama Chat API for a results-based report.
+    /// The student placeholder name "Jane" is used in place of a real name, since the results
+    /// spreadsheet contains only student numbers — the teacher can replace it after generation.
+    /// </summary>
+    /// <param name="examContext">Exam paper text or LLM-generated summary.</param>
+    /// <param name="row">The student's results row from the spreadsheet.</param>
+    /// <param name="teacherPrompt">Teacher instructions / additional guidance.</param>
+    /// <param name="taskText">The [TASK] instruction that tells the LLM what to produce.</param>
+    public string BuildResultsPrompt(
+        string examContext,
+        ResultsRow row,
+        string teacherPrompt,
+        string taskText)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        sb.AppendLine("[STUDENT]");
+        sb.AppendLine($"Jane / {row.StudentNumber} / Class {row.Class}");
+        sb.AppendLine();
+
+        sb.AppendLine("[EXAM PAPER]");
+        sb.AppendLine(examContext.Trim());
+        sb.AppendLine();
+
+        sb.AppendLine("[STUDENT RESULTS]");
+        foreach (var mark in row.Marks)
+        {
+            if (mark.StudentMark is null)
+                sb.AppendLine($"Q{mark.Label}: not attempted (max {mark.MaxMark})");
+            else
+                sb.AppendLine($"Q{mark.Label}: {mark.StudentMark} / {mark.MaxMark}");
+        }
+
+        if (row.Total is not null || row.Percentage is not null || row.Rank is not null)
+        {
+            var parts = new List<string>();
+            if (row.Total      is not null) parts.Add($"Total: {row.Total}");
+            if (row.Percentage is not null) parts.Add($"Percentage: {row.Percentage:0.##}%");
+            if (row.Rank       is not null) parts.Add($"Rank in year: {row.Rank}");
+            sb.AppendLine(string.Join(" | ", parts));
+        }
+
         sb.AppendLine();
 
         sb.AppendLine("[TEACHER INSTRUCTIONS]");
