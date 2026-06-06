@@ -34,6 +34,16 @@ public sealed class PromptBuilder
         return sb.ToString();
     }
 
+    // Grade band display names, ordered from highest to lowest.
+    private static readonly IReadOnlyList<(string Code, string Label)> GradeBands =
+    [
+        ("H",  "High"),
+        ("VG", "Very Good"),
+        ("G",  "Good"),
+        ("F",  "Fair"),
+        ("WT", "Working Towards"),
+    ];
+
     /// <summary>
     /// Assembles the structured prompt sent to the Ollama Chat API.
     /// </summary>
@@ -42,12 +52,20 @@ public sealed class PromptBuilder
     /// <param name="teacherPrompt">Teacher instructions / additional guidance.</param>
     /// <param name="taskText">The [TASK] instruction that tells the LLM what to produce.</param>
     /// <param name="studentName">Optional student name prepended as a [STUDENT] section.</param>
+    /// <param name="examples">
+    /// Optional example reports to guide the model's tone and style.
+    /// Each item is a <c>(grade, text)</c> tuple where grade is one of
+    /// <c>"H"</c>, <c>"VG"</c>, <c>"G"</c>, <c>"F"</c>, or <c>"WT"</c>.
+    /// When provided, an <c>[EXAMPLE REPORTS]</c> section is injected between
+    /// <c>[TEACHER INSTRUCTIONS]</c> and <c>[TASK]</c>, ordered high → low.
+    /// </param>
     public string Build(
         string examText,
         string responsesText,
         string teacherPrompt,
         string taskText,
-        string? studentName = null)
+        string? studentName = null,
+        IReadOnlyList<(string Grade, string Text)>? examples = null)
     {
         var sb = new System.Text.StringBuilder();
 
@@ -70,6 +88,31 @@ public sealed class PromptBuilder
         sb.AppendLine(teacherPrompt.Trim());
         sb.AppendLine();
 
+        if (examples is { Count: > 0 })
+        {
+            sb.AppendLine("[EXAMPLE REPORTS]");
+            sb.AppendLine(
+                "The following are real examples of reports written for this class, " +
+                "labelled by grade band. Use them as a reference for the expected " +
+                "tone, length, and phrasing.");
+            sb.AppendLine();
+
+            // Emit examples grouped in grade-band order (H → VG → G → F → WT).
+            foreach (var (code, label) in GradeBands)
+            {
+                foreach (var ex in examples.Where(e =>
+                    string.Equals(e.Grade, code, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (string.IsNullOrWhiteSpace(ex.Text))
+                        continue;
+
+                    sb.AppendLine($"--- {label} ---");
+                    sb.AppendLine(ex.Text.Trim());
+                    sb.AppendLine();
+                }
+            }
+        }
+
         sb.AppendLine("[TASK]");
         sb.AppendLine(taskText.Trim());
 
@@ -85,11 +128,19 @@ public sealed class PromptBuilder
     /// <param name="row">The student's results row from the spreadsheet.</param>
     /// <param name="teacherPrompt">Teacher instructions / additional guidance.</param>
     /// <param name="taskText">The [TASK] instruction that tells the LLM what to produce.</param>
+    /// <param name="examples">
+    /// Optional example reports to guide the model's tone and style.
+    /// Each item is a <c>(grade, text)</c> tuple where grade is one of
+    /// <c>"H"</c>, <c>"VG"</c>, <c>"G"</c>, <c>"F"</c>, or <c>"WT"</c>.
+    /// When provided, an <c>[EXAMPLE REPORTS]</c> section is injected between
+    /// <c>[TEACHER INSTRUCTIONS]</c> and <c>[TASK]</c>, ordered high → low.
+    /// </param>
     public string BuildResultsPrompt(
         string examContext,
         ResultsRow row,
         string teacherPrompt,
-        string taskText)
+        string taskText,
+        IReadOnlyList<(string Grade, string Text)>? examples = null)
     {
         var sb = new System.Text.StringBuilder();
 
@@ -124,6 +175,30 @@ public sealed class PromptBuilder
         sb.AppendLine("[TEACHER INSTRUCTIONS]");
         sb.AppendLine(teacherPrompt.Trim());
         sb.AppendLine();
+
+        if (examples is { Count: > 0 })
+        {
+            sb.AppendLine("[EXAMPLE REPORTS]");
+            sb.AppendLine(
+                "The following are real examples of reports written for this class, " +
+                "labelled by grade band. Use them as a reference for the expected " +
+                "tone, length, and phrasing.");
+            sb.AppendLine();
+
+            foreach (var (code, label) in GradeBands)
+            {
+                foreach (var ex in examples.Where(e =>
+                    string.Equals(e.Grade, code, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (string.IsNullOrWhiteSpace(ex.Text))
+                        continue;
+
+                    sb.AppendLine($"--- {label} ---");
+                    sb.AppendLine(ex.Text.Trim());
+                    sb.AppendLine();
+                }
+            }
+        }
 
         sb.AppendLine("[TASK]");
         sb.AppendLine(taskText.Trim());

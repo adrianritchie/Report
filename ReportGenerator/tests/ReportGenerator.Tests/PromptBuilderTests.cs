@@ -98,6 +98,59 @@ public sealed class PromptBuilderTests
         Assert.Contains("student said X", result);
         Assert.Contains("write a report", result);
     }
+
+    // ── Build — [EXAMPLE REPORTS] section ────────────────────────────────────
+
+    [Fact]
+    public void Build_ContainsExampleReportsSection_WhenExamplesProvided()
+    {
+        var examples = new[] { ("H", "An outstanding performance overall.") };
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask,
+            examples: examples);
+        Assert.Contains("[EXAMPLE REPORTS]", result);
+    }
+
+    [Fact]
+    public void Build_ExampleTextAppearsInOutput()
+    {
+        const string exampleText = "This student demonstrated excellent understanding.";
+        var examples = new[] { ("VG", exampleText) };
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask,
+            examples: examples);
+        Assert.Contains(exampleText, result);
+    }
+
+    [Fact]
+    public void Build_ExamplesAreOrderedByGradeBand()
+    {
+        // Provide examples in reverse grade order; expect H before WT in output.
+        var examples = new[]
+        {
+            ("WT", "Working towards target."),
+            ("H",  "Exceptional work."),
+        };
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask,
+            examples: examples);
+        var indexH  = result.IndexOf("Exceptional work.", StringComparison.Ordinal);
+        var indexWT = result.IndexOf("Working towards target.", StringComparison.Ordinal);
+        Assert.True(indexH < indexWT, "High example should appear before Working Towards example.");
+    }
+
+    [Fact]
+    public void Build_OmitsExampleSection_WhenExamplesIsNull()
+    {
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask,
+            examples: null);
+        Assert.DoesNotContain("[EXAMPLE REPORTS]", result);
+    }
+
+    [Fact]
+    public void Build_OmitsExampleSection_WhenExamplesIsEmpty()
+    {
+        var result = _builder.Build("exam", "responses", "instructions", SampleTask,
+            examples: []);
+        Assert.DoesNotContain("[EXAMPLE REPORTS]", result);
+    }
 }
 
 // ── BuildResultsPrompt ────────────────────────────────────────────────────────
@@ -210,5 +263,25 @@ public sealed class BuildResultsPromptTests
         Assert.Contains("focus on algebra",       result);
         Assert.Contains("[TASK]",                 result);
         Assert.Contains(SampleTask,               result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_ContainsExampleReportsSection_WhenExamplesProvided()
+    {
+        var row = MakeRow();
+        var examples = new[] { ("G", "A solid effort across the paper.") };
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask,
+            examples: examples);
+        Assert.Contains("[EXAMPLE REPORTS]", result);
+        Assert.Contains("A solid effort across the paper.", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_OmitsExampleSection_WhenExamplesIsNull()
+    {
+        var row = MakeRow();
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask,
+            examples: null);
+        Assert.DoesNotContain("[EXAMPLE REPORTS]", result);
     }
 }

@@ -1,0 +1,201 @@
+@using ReportGenerator.Web.Models
+@using ReportGenerator.Web.Services
+
+@inject ExampleReportsStore ExampleReportsStore
+
+<div class="border border-slate-200 rounded-lg overflow-hidden">
+
+    @* ── Accordion header ───────────────────────────────────────────────────── *@
+    <button type="button"
+            class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+            @onclick="() => _expanded = !_expanded">
+        <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-slate-700">Example Reports</span>
+            @if (_examples.Count > 0)
+            {
+                <span class="inline-flex items-center justify-center px-1.5 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-700">
+                    @_examples.Count
+                </span>
+            }
+            <span class="text-xs text-slate-400">(click to @(_expanded ? "collapse" : "expand"))</span>
+        </div>
+        <svg xmlns="http://www.w3.org/2000/svg"
+             class="h-4 w-4 text-slate-400 transition-transform @(_expanded ? "rotate-180" : "")"
+             viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+        </svg>
+    </button>
+
+    @* ── Accordion body ─────────────────────────────────────────────────────── *@
+    @if (_expanded)
+    {
+        <div class="px-4 py-4 border-t border-slate-200 space-y-4">
+
+            <p class="text-xs text-slate-400">
+                Enter real example reports from this class, each labelled with a grade band.
+                All examples will be included in every student's prompt so the model can
+                match the expected tone, length, and phrasing.
+            </p>
+
+            @* ── Add example controls ─────────────────────────────────────── *@
+            <div class="flex items-center gap-2">
+                <label class="text-xs font-medium text-slate-600 shrink-0">Grade:</label>
+                <select class="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        @bind="_newGrade">
+                    @foreach (var band in GradeBands)
+                    {
+                        <option value="@band.Code">@band.Label</option>
+                    }
+                </select>
+                <button type="button"
+                        class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                        @onclick="AddExample">
+                    <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
+                    </svg>
+                    Add Example
+                </button>
+            </div>
+
+            @* ── Example cards, grouped by grade band ─────────────────────── *@
+            @foreach (var band in GradeBands)
+            {
+                var bandExamples = _examples
+                    .Select((e, i) => (Example: e, Index: i))
+                    .Where(x => string.Equals(x.Example.Grade, band.Code, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                @foreach (var (example, idx) in bandExamples)
+                {
+                    var capturedIdx = idx;
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+
+                        @* Card header: grade badge + delete button *@
+                        <div class="flex items-center justify-between">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold @GradeBadgeClass(band.Code)">
+                                @band.Label
+                            </span>
+                            <button type="button"
+                                    class="text-slate-400 hover:text-red-500 transition-colors"
+                                    title="Remove this example"
+                                    @onclick="() => RemoveExample(capturedIdx)">
+                                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        @* Report text area *@
+                        <textarea rows="6"
+                                  placeholder="Paste or type the example report here…"
+                                  class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                  value="@example.Text"
+                                  @oninput="e => OnTextChanged(capturedIdx, e.Value?.ToString() ?? string.Empty)">
+                        </textarea>
+
+                    </div>
+                }
+            }
+
+            @if (_examples.Count == 0)
+            {
+                <p class="text-xs text-slate-400 italic">No examples added yet. Use the controls above to add your first example.</p>
+            }
+
+        </div>
+    }
+</div>
+
+@code {
+    // Grade bands in display order (high → low).
+    private static readonly (string Code, string Label)[] GradeBands =
+    [
+        ("H",  "High"),
+        ("VG", "Very Good"),
+        ("G",  "Good"),
+        ("F",  "Fair"),
+        ("WT", "Working Towards"),
+    ];
+
+    /// <summary>
+    /// Raised whenever the examples list changes (add, remove, or text edit).
+    /// The parent can subscribe to propagate the change and trigger a save.
+    /// </summary>
+    [Parameter] public EventCallback<IReadOnlyList<ExampleReport>> ExamplesChanged { get; set; }
+
+    private List<ExampleReport> _examples = [];
+    private string _newGrade = "H";
+    private bool _expanded;
+
+    // Debounce timer — saves to localStorage 500 ms after the last keystroke.
+    private System.Timers.Timer? _saveTimer;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _examples = await ExampleReportsStore.LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task AddExample()
+    {
+        _examples.Add(new ExampleReport(_newGrade, string.Empty));
+        await NotifyAndScheduleSave();
+    }
+
+    private async Task RemoveExample(int index)
+    {
+        if (index >= 0 && index < _examples.Count)
+        {
+            _examples.RemoveAt(index);
+            await NotifyAndScheduleSave();
+        }
+    }
+
+    private async Task OnTextChanged(int index, string newText)
+    {
+        if (index >= 0 && index < _examples.Count)
+        {
+            _examples[index] = _examples[index] with { Text = newText };
+            await NotifyAndScheduleSave();
+        }
+    }
+
+    /// <summary>
+    /// Notifies the parent of the current examples and schedules a debounced localStorage save.
+    /// </summary>
+    private async Task NotifyAndScheduleSave()
+    {
+        await ExamplesChanged.InvokeAsync(_examples.AsReadOnly());
+
+        // Reset the debounce timer on every change.
+        _saveTimer?.Stop();
+        _saveTimer?.Dispose();
+        _saveTimer = new System.Timers.Timer(500) { AutoReset = false };
+        _saveTimer.Elapsed += async (_, _) =>
+        {
+            await ExampleReportsStore.SaveAsync(_examples.AsReadOnly());
+            _saveTimer?.Dispose();
+            _saveTimer = null;
+        };
+        _saveTimer.Start();
+    }
+
+    private static string GradeBadgeClass(string code) => code switch
+    {
+        "H"  => "bg-emerald-100 text-emerald-800",
+        "VG" => "bg-green-100 text-green-800",
+        "G"  => "bg-blue-100 text-blue-800",
+        "F"  => "bg-amber-100 text-amber-800",
+        "WT" => "bg-rose-100 text-rose-800",
+        _    => "bg-slate-100 text-slate-700",
+    };
+
+    public void Dispose()
+    {
+        _saveTimer?.Stop();
+        _saveTimer?.Dispose();
+    }
+}

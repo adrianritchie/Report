@@ -21,3 +21,9 @@ public sealed record ProgressStep(
 
 /// <summary>A completed student report row shown in the results table.</summary>
 public sealed record ReportRow(int SequenceNumber, string StudentName, string ReportText, string PromptText);
+
+/// <summary>
+/// A single example report entered by the teacher, labelled with a grade band.
+/// Grade values: "H" (High), "VG" (Very Good), "G" (Good), "F" (Fair), "WT" (Working Towards).
+/// </summary>
+public sealed record ExampleReport(string Grade, string Text);

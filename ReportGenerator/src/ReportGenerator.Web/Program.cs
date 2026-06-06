@@ -28,6 +28,7 @@ builder.Services.AddSingleton<IExcelExtractor, ExcelExtractor>();
 builder.Services.AddSingleton<IResultsExtractor, ResultsExtractor>();
 builder.Services.AddSingleton<PromptBuilder>();
 builder.Services.AddSingleton<DownloadTokenStore>();
+builder.Services.AddScoped<ExampleReportsStore>();
 
 builder.Services.AddHttpClient<IOllamaClient, OllamaClient>((sp, client) =>
 {
