@@ -33,9 +33,9 @@ public sealed class ResultsExtractorTests : IDisposable
     /// Layout:
     ///   Row 1: [blank] [blank]  1     1     2
     ///   Row 2: [blank] [blank]  a     b     (blank)
-    ///   Row 3: [blank] [blank]  3     4     5      | Total | % | Rank
-    ///   Row 4: 12345   10A      2     4     5        85     72   4
-    ///   Row 5: 67890   10B      1     0     3        45     38   12
+    ///   Row 3: [blank] [blank]  3     4     5
+    ///   Row 4: 12345   10A      2     4     5        85     72.5  4   VG
+    ///   Row 5: 67890   10B      1     0     3        45     37.5 12   F
     /// </summary>
     private static XLWorkbook BuildValidWorkbook()
     {
@@ -46,10 +46,11 @@ public sealed class ResultsExtractorTests : IDisposable
         ws.Cell(1, 3).Value = "1";
         ws.Cell(1, 4).Value = "1";
         ws.Cell(1, 5).Value = "2";
-        // Last 3 cols headers (positional — not read by extractor but included for realism)
+        // Summary headers (identified by heading text by extractor)
         ws.Cell(1, 6).Value = "Total";
         ws.Cell(1, 7).Value = "%";
         ws.Cell(1, 8).Value = "Rank";
+        ws.Cell(1, 9).Value = "Grade";
 
         // Header row 2 — sub-parts
         ws.Cell(2, 3).Value = "a";
@@ -70,6 +71,7 @@ public sealed class ResultsExtractorTests : IDisposable
         ws.Cell(4, 6).Value = 85;
         ws.Cell(4, 7).Value = 72.5;
         ws.Cell(4, 8).Value = 4;
+        ws.Cell(4, 9).Value = "VG";
 
         // Student 2
         ws.Cell(5, 1).Value = "67890";
@@ -80,6 +82,7 @@ public sealed class ResultsExtractorTests : IDisposable
         ws.Cell(5, 6).Value = 45;
         ws.Cell(5, 7).Value = 37.5;
         ws.Cell(5, 8).Value = 12;
+        ws.Cell(5, 9).Value = "F";
 
         return wb;
     }
@@ -161,7 +164,7 @@ public sealed class ResultsExtractorTests : IDisposable
     }
 
     [Fact]
-    public void Extract_ParsesTotalPercentageAndRank()
+    public void Extract_ParsesTotalPercentageRankAndGrade()
     {
         // Arrange
         using var wb = BuildValidWorkbook();
@@ -174,11 +177,13 @@ public sealed class ResultsExtractorTests : IDisposable
         Assert.Equal(85, rows[0].Total);
         Assert.Equal(72.5, rows[0].Percentage);
         Assert.Equal(4, rows[0].Rank);
+        Assert.Equal("VG", rows[0].Grade);
 
         // Assert student 2
         Assert.Equal(45, rows[1].Total);
         Assert.Equal(37.5, rows[1].Percentage);
         Assert.Equal(12, rows[1].Rank);
+        Assert.Equal("F", rows[1].Grade);
     }
 
     [Fact]
@@ -190,6 +195,7 @@ public sealed class ResultsExtractorTests : IDisposable
         ws.Cell(4, 6).Value = "";
         ws.Cell(4, 7).Value = "";
         ws.Cell(4, 8).Value = "";
+        ws.Cell(4, 9).Value = "";
         var path = SaveToTempFile(wb);
 
         // Act
@@ -199,6 +205,7 @@ public sealed class ResultsExtractorTests : IDisposable
         Assert.Null(rows[0].Total);
         Assert.Null(rows[0].Percentage);
         Assert.Null(rows[0].Rank);
+        Assert.Null(rows[0].Grade);
     }
 
     [Fact]
@@ -219,13 +226,33 @@ public sealed class ResultsExtractorTests : IDisposable
         ws.Cell(1, 3).Value = "1";
         ws.Cell(2, 3).Value = "a";
         ws.Cell(3, 3).Value = 5;
-        // Last 3 cols to make the column count valid
+        // Summary headers required in row 1
         ws.Cell(1, 4).Value = "Total";
         ws.Cell(1, 5).Value = "%";
         ws.Cell(1, 6).Value = "Rank";
+        ws.Cell(1, 7).Value = "Grade";
         var path = SaveToTempFile(wb);
 
         // Act & Assert
         Assert.Throws<InvalidOperationException>(() => _extractor.Extract(path));
+    }
+
+    [Fact]
+    public void Extract_IgnoresColumnsAfterGrade()
+    {
+        // Arrange
+        using var wb = BuildValidWorkbook();
+        var ws = wb.Worksheets.First();
+        ws.Cell(1, 10).Value = "Comment";
+        ws.Cell(4, 10).Value = "Excellent";
+        ws.Cell(5, 10).Value = "Needs support";
+        var path = SaveToTempFile(wb);
+
+        // Act
+        var rows = _extractor.Extract(path);
+
+        // Assert
+        Assert.Equal(3, rows[0].Marks.Count);
+        Assert.Equal("VG", rows[0].Grade);
     }
 }

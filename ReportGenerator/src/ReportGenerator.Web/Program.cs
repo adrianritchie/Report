@@ -29,6 +29,8 @@ builder.Services.AddSingleton<IResultsExtractor, ResultsExtractor>();
 builder.Services.AddSingleton<PromptBuilder>();
 builder.Services.AddSingleton<DownloadTokenStore>();
 builder.Services.AddScoped<ExampleReportsStore>();
+builder.Services.AddSingleton<WorkspaceStore>();
+builder.Services.AddScoped<WorkspacePipelineService>();
 
 builder.Services.AddHttpClient<IOllamaClient, OllamaClient>((sp, client) =>
 {

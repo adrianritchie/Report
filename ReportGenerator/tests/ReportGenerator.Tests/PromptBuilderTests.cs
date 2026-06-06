@@ -167,6 +167,7 @@ public sealed class BuildResultsPromptTests
         int?   total         = 85,
         double? percentage   = 72.5,
         int?   rank          = 4,
+        string? grade        = null,
         IReadOnlyList<QuestionMark>? marks = null)
     {
         marks ??= new[]
@@ -176,7 +177,7 @@ public sealed class BuildResultsPromptTests
             new QuestionMark("2",  null, 5),  // not attempted
         };
 
-        return new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank);
+        return new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank, grade);
     }
 
     [Fact]

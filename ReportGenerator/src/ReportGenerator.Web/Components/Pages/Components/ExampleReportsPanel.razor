@@ -122,6 +122,8 @@
     /// The parent can subscribe to propagate the change and trigger a save.
     /// </summary>
     [Parameter] public EventCallback<IReadOnlyList<ExampleReport>> ExamplesChanged { get; set; }
+    [Parameter] public IReadOnlyList<ExampleReport>? Examples { get; set; }
+    [Parameter] public bool UseBrowserStorage { get; set; } = true;
 
     private List<ExampleReport> _examples = [];
     private string _newGrade = "H";
@@ -130,11 +132,23 @@
     // Debounce timer — saves to localStorage 500 ms after the last keystroke.
     private System.Timers.Timer? _saveTimer;
 
+    protected override void OnParametersSet()
+    {
+        if (Examples is null)
+            return;
+
+        if (_examples.Count == Examples.Count && _examples.SequenceEqual(Examples))
+            return;
+
+        _examples = Examples.ToList();
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && UseBrowserStorage && Examples is null)
         {
             _examples = await ExampleReportsStore.LoadAsync();
+            await ExamplesChanged.InvokeAsync(_examples.AsReadOnly());
             StateHasChanged();
         }
     }
@@ -176,7 +190,9 @@
         _saveTimer = new System.Timers.Timer(500) { AutoReset = false };
         _saveTimer.Elapsed += async (_, _) =>
         {
-            await ExampleReportsStore.SaveAsync(_examples.AsReadOnly());
+            if (UseBrowserStorage)
+                await ExampleReportsStore.SaveAsync(_examples.AsReadOnly());
+
             _saveTimer?.Dispose();
             _saveTimer = null;
         };

@@ -2,206 +2,322 @@
 @rendermode InteractiveServer
 
 @using ReportGenerator.Configuration
-@using ReportGenerator.Extraction
-@using ReportGenerator.Ollama
-@using ReportGenerator.Report
 @using ReportGenerator.Web.Models
 @using ReportGenerator.Web.Services
 
-@inject IOllamaClient OllamaClient
-@inject IContentExtractor ContentExtractor
-@inject IResultsExtractor ResultsExtractor
-@inject PromptBuilder PromptBuilder
+@inject WorkspaceStore WorkspaceStore
+@inject WorkspacePipelineService WorkspacePipeline
+@inject DownloadTokenStore DownloadTokenStore
 @inject OllamaOptions OllamaOptions
 @inject ReportOptions ReportOptions
-@inject DownloadTokenStore DownloadTokenStore
-@inject ExampleReportsStore ExampleReportsStore
 
-@* ── Config card ─────────────────────────────────────────────────────────── *@
 <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
-    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Configuration</h2>
+    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Results Analysis Workspace</h2>
 
-    <div class="grid grid-cols-1 gap-5">
-
-        @* Model *@
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">Model</label>
-            <ModelSelector @bind-SelectedModel="_selectedModel" />
-        </div>
-
-        @* Prompt *@
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">Teacher Instructions</label>
-            <PromptEditor @bind-Prompt="_prompt" />
-        </div>
-
-        @* Task *@
-        <div class="border border-slate-200 rounded-lg overflow-hidden">
-            <button type="button"
-                    class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
-                    @onclick="() => _taskExpanded = !_taskExpanded">
-                <div>
-                    <span class="text-sm font-medium text-slate-700">Task Instructions</span>
-                    <span class="ml-2 text-xs text-slate-400">(click to @(_taskExpanded ? "collapse" : "expand"))</span>
-                </div>
-                <svg xmlns="http://www.w3.org/2000/svg"
-                     class="h-4 w-4 text-slate-400 transition-transform @(_taskExpanded ? "rotate-180" : "")"
-                     viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-                </svg>
+    <div class="flex flex-col gap-4">
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-64 flex-1">
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Current Workspace</label>
+                <select class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        value="@_selectedWorkspaceId"
+                        @onchange="OnWorkspaceChanged">
+                    @foreach (var ws in _workspaces)
+                    {
+                        <option value="@ws.Id">@ws.Name (v@ws.CurrentVersion)</option>
+                    }
+                </select>
+            </div>
+            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2.5 rounded-lg text-sm"
+                    @onclick="CreateWorkspaceAsync">
+                Create Workspace
             </button>
-            @if (_taskExpanded)
+            <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2.5 rounded-lg text-sm"
+                    @onclick="RenameWorkspaceAsync"
+                    disabled="@(_workspace is null)">
+                Rename
+            </button>
+        </div>
+
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-64 flex-1">
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Workspace Name</label>
+                <input class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                       @bind="_workspaceNameDraft"
+                       @bind:event="oninput" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (_workspace is not null)
+{
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Configuration</h2>
+
+        <div class="grid grid-cols-1 gap-5">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Model</label>
+                <ModelSelector @bind-SelectedModel="_selectedModel" />
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Teacher Instructions</label>
+                <PromptEditor @bind-Prompt="_prompt" />
+            </div>
+
+            <div class="border border-slate-200 rounded-lg overflow-hidden">
+                <button type="button"
+                        class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                        @onclick="() => _taskExpanded = !_taskExpanded">
+                    <div>
+                        <span class="text-sm font-medium text-slate-700">Task Instructions</span>
+                        <span class="ml-2 text-xs text-slate-400">(click to @(_taskExpanded ? "collapse" : "expand"))</span>
+                    </div>
+                </button>
+                @if (_taskExpanded)
+                {
+                    <div class="px-4 py-3 border-t border-slate-200">
+                        <textarea rows="8"
+                                  class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm resize-y"
+                                  @bind="_task"
+                                  @bind:event="oninput"></textarea>
+                    </div>
+                }
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Example Reports</label>
+                <ExampleReportsPanel Examples="_examples" UseBrowserStorage="false" ExamplesChanged="OnExamplesChanged" />
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-lg text-sm"
+                    @onclick="SaveConfigurationAsync">
+                Save Prompt & Config
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Stage Processing</h2>
+
+        <div class="grid grid-cols-1 gap-4">
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Process Exam Paper</p>
+                        <p class="text-xs text-slate-500">Extract text + generate editable summary. Saved automatically.</p>
+                    </div>
+                    <span class="text-xs text-slate-500">@RenderProcessed(_workspace.Exam.ProcessedUtc)</span>
+                </div>
+                <InputFile OnChange="OnExamUpload" accept=".pdf,.txt,.md,.text,.doc,.rtf,.docx"
+                           class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700" />
+                <div class="mt-3 flex flex-wrap gap-3 items-center">
+                    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="ProcessExamAsync"
+                            disabled="@(_examUploadData is null || _isBusy)">
+                        Process Exam
+                    </button>
+                    <span class="text-xs text-slate-500">@(_workspace.Exam.SourceFileName ?? "No file processed yet")</span>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_examSummaryEditable))
+                {
+                    <div class="mt-3">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Editable summary (persisted)</label>
+                        <textarea class="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-mono"
+                                  rows="10"
+                                  @bind="_examSummaryEditable"
+                                  @bind:event="oninput"></textarea>
+                        <button class="mt-2 inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2 rounded-lg text-xs"
+                                @onclick="SaveExamSummaryAsync"
+                                disabled="@_isBusy">
+                            Save Edited Summary
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Preprocess Results Spreadsheet</p>
+                        <p class="text-xs text-slate-500">Parse and persist structured results rows for report generation.</p>
+                    </div>
+                    <span class="text-xs text-slate-500">@RenderProcessed(_workspace.ResultsAnalysis.ProcessedUtc)</span>
+                </div>
+                <InputFile OnChange="OnResultsSheetUpload" accept=".xlsx"
+                           class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700" />
+                <div class="mt-3 flex flex-wrap gap-3 items-center">
+                    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="PreprocessResultsSheetAsync"
+                            disabled="@(_resultsSheetUploadData is null || _isBusy)">
+                        Preprocess Results Spreadsheet
+                    </button>
+                    <span class="text-xs text-slate-500">@(_workspace.ResultsAnalysis.Students.Count) student(s) loaded</span>
+                    @if (_resultsPreviewStudents.Count > 0)
+                    {
+                        <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-3 py-1.5 rounded-lg text-xs"
+                                @onclick="ToggleResultsPreview">
+                            @(_resultsPreviewCollapsed ? "Show Preview" : "Hide Preview")
+                        </button>
+                    }
+                </div>
+
+                @if (_resultsPreviewStudents.Count > 0 && !_resultsPreviewCollapsed)
+                {
+                    <div class="mt-4 rounded-lg border border-slate-200 overflow-x-auto">
+                        <table class="w-full text-xs text-left border-collapse">
+                            <thead class="bg-slate-100 text-slate-600 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-2 py-2 font-semibold min-w-32">Student #</th>
+                                    <th class="px-2 py-2 font-semibold min-w-24">Class</th>
+                                    <th class="px-2 py-2 font-semibold min-w-20">Total</th>
+                                    <th class="px-2 py-2 font-semibold min-w-24">Percentage</th>
+                                    <th class="px-2 py-2 font-semibold min-w-16">Rank</th>
+                                    <th class="px-2 py-2 font-semibold min-w-20">Grade</th>
+                                    <th class="px-2 py-2 font-semibold min-w-80">Question Marks</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @for (var studentIndex = 0; studentIndex < _resultsPreviewStudents.Count; studentIndex++)
+                                {
+                                    var row = _resultsPreviewStudents[studentIndex];
+                                    <tr>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@row.StudentNumber"
+                                                   @oninput="e => row.StudentNumber = e.Value?.ToString() ?? string.Empty" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@row.Class"
+                                                   @oninput="e => row.Class = e.Value?.ToString() ?? string.Empty" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Total?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.Total = ParseIntOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Percentage?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.Percentage = ParseDoubleOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Rank?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.Rank = ParseIntOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Grade ?? string.Empty)"
+                                                   @oninput="e => row.Grade = e.Value?.ToString()" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <div class="grid grid-cols-1 gap-1">
+                                                @for (var markIndex = 0; markIndex < row.Marks.Count; markIndex++)
+                                                {
+                                                    var mark = row.Marks[markIndex];
+                                                    <div class="flex items-center gap-1">
+                                                        <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                               value="@mark.Label"
+                                                               @oninput="e => mark.Label = e.Value?.ToString() ?? string.Empty" />
+                                                        <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                               value="@(mark.StudentMark?.ToString() ?? string.Empty)"
+                                                               @oninput="e => mark.StudentMark = ParseIntOrNull(e.Value?.ToString())" />
+                                                        <span class="text-slate-500">/</span>
+                                                        <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                               value="@mark.MaxMark"
+                                                               @oninput="e => mark.MaxMark = ParseIntOrDefault(e.Value?.ToString(), mark.MaxMark)" />
+                                                    </div>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button class="mt-3 inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2 rounded-lg text-xs"
+                            @onclick="SaveResultsSheetSnapshotAsync"
+                            disabled="@_isBusy">
+                        Save Edited Results Data
+                    </button>
+                }
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Generate Results Analysis Reports</p>
+                        <p class="text-xs text-slate-500">Uses persisted prompt, exam summary, and preprocessed results spreadsheet.</p>
+                    </div>
+                </div>
+                <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                        @onclick="GenerateReportsAsync"
+                        disabled="@(_isBusy || string.IsNullOrWhiteSpace(_workspace.Exam.SummaryFinal) || _workspace.ResultsAnalysis.Students.Count == 0)">
+                    Generate Reports
+                </button>
+                @if (_workspace.ResultsAnalysis.Runs.Count > 0)
+                {
+                    <span class="text-xs text-slate-500 ml-3">Latest run: @_workspace.ResultsAnalysis.Runs[0].RunId</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Version History</h2>
+        <div class="space-y-2">
+            @foreach (var version in _workspace.Versions)
             {
-                <div class="px-4 py-3 border-t border-slate-200">
-                    <p class="text-xs text-slate-400 mb-2">Tells the model what to produce. Included verbatim as the <code class="bg-slate-100 px-1 rounded">[TASK]</code> section of every student prompt.</p>
-                    <textarea rows="8"
-                              class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono"
-                              @bind="_task"
-                              @bind:event="oninput">
-                    </textarea>
+                <div class="flex flex-wrap items-center gap-3 border border-slate-200 rounded-lg px-3 py-2">
+                    <span class="text-xs font-semibold text-slate-700">v@version.Number</span>
+                    <span class="text-xs text-slate-500">@version.Reason</span>
+                    <span class="text-xs text-slate-400">@version.CreatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</span>
+                    <button class="ml-auto text-xs text-indigo-700 hover:text-indigo-900" @onclick="() => PreviewDiffAsync(version.Number)">Preview Diff</button>
+                    <button class="text-xs text-amber-700 hover:text-amber-900" @onclick="() => RestoreVersionAsync(version.Number)">Restore</button>
                 </div>
             }
         </div>
 
-        @* Example Reports *@
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">Example Reports</label>
-            <ExampleReportsPanel ExamplesChanged="OnExamplesChanged" />
-        </div>
-
-        @* Files *@
-        <div>
-            <label class="block text-sm font-medium text-slate-700 mb-1.5">Upload Files</label>
-            <FileUploadPanel ExamFileChanged="OnExamFileChanged"
-                             SheetFileChanged="OnSheetFileChanged"
-                             SheetLabel="Results Spreadsheet"
-                             SheetHint="XLSX — 3-row header format" />
-        </div>
-
+        @if (_diffPreview is not null)
+        {
+            <div class="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                <p class="text-sm font-semibold text-indigo-800 mb-2">Diff preview vs v@_diffPreview.VersionNumber (@_diffPreview.Reason)</p>
+                @foreach (var diffSection in _diffPreview.Sections)
+                {
+                    <div class="mb-2">
+                        <p class="text-xs font-semibold text-indigo-700">@diffSection.Title</p>
+                        @foreach (var line in diffSection.Lines)
+                        {
+                            <p class="text-xs text-indigo-800">- @line</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
     </div>
-</div>
+}
 
-@* ── Error banner ─────────────────────────────────────────────────────────── *@
 @if (_errorMessage is not null)
 {
     <div class="flex items-start gap-3 border-l-4 border-red-500 bg-red-50 text-red-800 px-4 py-3 rounded-r-xl mb-4 text-sm">
-        <svg class="w-4 h-4 mt-0.5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.25a.75.75 0 011.5 0v4.5a.75.75 0 01-1.5 0v-4.5zm.75 8a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-        </svg>
         <span>@_errorMessage</span>
     </div>
 }
 
-@* ── Action buttons ───────────────────────────────────────────────────────── *@
-<div class="flex items-center gap-3 mb-6">
-    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm shadow-sm"
-            @onclick="OnGenerateClicked"
-            disabled="@(_isGenerating || _examData is null || _sheetData is null)">
-        @if (_isGenerating)
-        {
-            <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
-            <span>Generating…</span>
-        }
-        else
-        {
-            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
-            </svg>
-            <span>Generate Reports</span>
-        }
-    </button>
-
-    @if (_isGenerating)
-    {
-        <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-600 hover:bg-slate-100 font-medium px-5 py-2.5 rounded-lg transition-colors text-sm"
-                @onclick="OnCancelClicked">
-            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clip-rule="evenodd" />
-            </svg>
-            Cancel
-        </button>
-    }
-</div>
-
-@* ── Progress timeline ────────────────────────────────────────────────────── *@
 @if (_progressSteps.Count > 0)
 {
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
-        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Progress</h2>
-        <ProgressLog Steps="_progressSteps" TotalStudents="_totalStudents" DoneStudents="_doneStudents" />
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Generation Progress</h2>
+        <ProgressLog Steps="_progressSteps" TotalStudents="@_totalStudents" DoneStudents="@_doneStudents" />
     </div>
 }
 
-@* ── Exam summary review panel ────────────────────────────────────────────── *@
-@if (_awaitingReview)
-{
-    <div class="bg-white rounded-2xl shadow-sm border border-indigo-200 p-6 mb-6">
-        <div class="flex items-center gap-2 mb-1">
-            <svg class="w-4 h-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-            </svg>
-            <h2 class="text-sm font-semibold text-slate-700">Review Exam Summary</h2>
-        </div>
-        <p class="text-xs text-slate-500 mb-4">
-            This summary was extracted from the exam paper and will be used as context for each student report.
-            Edit it if needed, then click <strong>Continue</strong> to begin generating reports.
-        </p>
-
-        @if (_summaryWasFallback)
-        {
-            <div class="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2 rounded-lg mb-3">
-                <svg class="w-3.5 h-3.5 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-                </svg>
-                Summarisation failed — showing raw exam text as fallback. You may edit before continuing.
-            </div>
-        }
-
-        <textarea class="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-xs font-mono text-slate-700 shadow-sm resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  rows="14"
-                  @bind="_examSummaryEditable"
-                  @bind:event="oninput">
-        </textarea>
-
-        <div class="flex items-center gap-3 mt-4">
-            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm shadow-sm"
-                    @onclick="OnReviewContinueClicked">
-                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
-                </svg>
-                Continue — Generate Reports
-            </button>
-            <span class="text-xs text-slate-400">Any edits you make above will be used in the student prompts.</span>
-        </div>
-    </div>
-}
-
-@* ── Retry banner ─────────────────────────────────────────────────────────── *@
-@if (_retryStudentName is not null)
-{
-    <div class="flex items-center gap-4 bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl mb-4 text-sm">
-        <svg class="w-5 h-5 flex-shrink-0 text-amber-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-        </svg>
-        <span>Generation failed for <strong>@_retryStudentName</strong>. Retry?</span>
-        <div class="flex gap-2 ml-auto">
-            <button class="bg-amber-500 hover:bg-amber-600 text-white font-medium px-4 py-1.5 rounded-lg text-xs transition-colors"
-                    @onclick="() => OnRetryDecision(true)">
-                Retry
-            </button>
-            <button class="border border-amber-300 text-amber-700 hover:bg-amber-100 font-medium px-4 py-1.5 rounded-lg text-xs transition-colors"
-                    @onclick="() => OnRetryDecision(false)">
-                Skip
-            </button>
-        </div>
-    </div>
-}
-
-@* ── Results table ────────────────────────────────────────────────────────── *@
 @if (_reportRows.Count > 0)
 {
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
@@ -212,332 +328,372 @@
     </div>
 }
 
-@* ── Download button ──────────────────────────────────────────────────────── *@
 <DownloadButton Token="@_downloadToken" />
 
 @code {
-    // ── state ─────────────────────────────────────────────────────────────────
+    private const string WorkspaceKind = WorkspaceKinds.Results;
+
+    [SupplyParameterFromQuery(Name = "workspaceId")]
+    public string? WorkspaceId { get; set; }
+
+    private List<WorkspaceSummary> _workspaces = [];
+    private WorkspaceState? _workspace;
+    private string? _selectedWorkspaceId;
+    private string _workspaceNameDraft = string.Empty;
 
     private string _selectedModel = string.Empty;
     private string _prompt = string.Empty;
     private string _task = string.Empty;
     private bool _taskExpanded;
-
-    private string? _examFileName;
-    private byte[]? _examData;
-    private string? _sheetFileName;
-    private byte[]? _sheetData;
-
-    // Example reports entered by the teacher for prompt calibration.
     private IReadOnlyList<ExampleReport> _examples = [];
 
-    private bool _isGenerating;
+    private string? _examUploadFileName;
+    private byte[]? _examUploadData;
+    private string? _resultsSheetUploadFileName;
+    private byte[]? _resultsSheetUploadData;
+    private string _examSummaryEditable = string.Empty;
+    private List<WorkspaceResultsStudentSnapshot> _resultsPreviewStudents = [];
+    private bool _resultsPreviewCollapsed;
+
+    private bool _isBusy;
     private string? _errorMessage;
     private string? _downloadToken;
+    private WorkspaceVersionDiff? _diffPreview;
 
     private readonly List<ProgressStep> _progressSteps = [];
     private readonly List<ReportRow> _reportRows = [];
-
     private int _totalStudents;
     private int _doneStudents;
 
-    // exam summary review
-    private bool _awaitingReview;
-    private bool _summaryWasFallback;
-    private string _examSummaryEditable = string.Empty;
-    private TaskCompletionSource<string>? _reviewTcs;
-
-    // per-student retry support
-    private string? _retryStudentName;
-    private TaskCompletionSource<bool>? _retryCts;
-
-    private CancellationTokenSource? _generationCts;
-
-    // ── lifecycle ─────────────────────────────────────────────────────────────
-
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        _prompt = ReportOptions.DefaultPrompt;
-        _task = ReportOptions.DefaultTask;
-        _selectedModel = OllamaOptions.Model;
+        await LoadWorkspacesAsync();
     }
 
-    // ── file upload handlers ──────────────────────────────────────────────────
-
-    private void OnExamFileChanged((string FileName, byte[] Data) args)
+    protected override async Task OnParametersSetAsync()
     {
-        _examFileName = args.FileName;
-        _examData = args.Data;
-        _errorMessage = null;
+        if (_workspace is not null && string.Equals(_workspace.Id, WorkspaceId, StringComparison.Ordinal))
+            return;
+
+        if (_workspaces.Count == 0)
+            return;
+
+        var requested = WorkspaceId;
+        if (!string.IsNullOrWhiteSpace(requested)
+            && _workspaces.Any(w => string.Equals(w.Id, requested, StringComparison.Ordinal)))
+        {
+            _selectedWorkspaceId = requested;
+            await LoadWorkspaceAsync(requested);
+        }
     }
 
-    private void OnSheetFileChanged((string FileName, byte[] Data) args)
+    private async Task LoadWorkspacesAsync()
     {
-        _sheetFileName = args.FileName;
-        _sheetData = args.Data;
-        _errorMessage = null;
+        _workspaces = (await WorkspaceStore.ListAsync(WorkspaceKind)).ToList();
+        if (_workspaces.Count == 0)
+        {
+            var created = await WorkspaceStore.CreateAsync("Default Workspace", WorkspaceKind, OllamaOptions.Model, ReportOptions.DefaultPrompt, ReportOptions.DefaultTask);
+            _workspaces = [new WorkspaceSummary
+            {
+                Id = created.Id,
+                Name = created.Name,
+                Kind = created.Kind,
+                UpdatedUtc = created.UpdatedUtc,
+                CurrentVersion = created.CurrentVersion,
+            }];
+        }
+
+        if (!string.IsNullOrWhiteSpace(WorkspaceId)
+            && _workspaces.Any(w => string.Equals(w.Id, WorkspaceId, StringComparison.Ordinal)))
+        {
+            _selectedWorkspaceId = WorkspaceId;
+        }
+        else
+        {
+            _selectedWorkspaceId ??= _workspaces[0].Id;
+        }
+
+        await LoadWorkspaceAsync(_selectedWorkspaceId);
     }
 
-    private void OnExamplesChanged(IReadOnlyList<ExampleReport> examples)
-        => _examples = examples;
-
-    // ── generation ────────────────────────────────────────────────────────────
-
-    private async Task OnGenerateClicked()
+    private async Task LoadWorkspaceAsync(string? workspaceId)
     {
-        if (_examData is null || _sheetData is null) return;
+        if (string.IsNullOrWhiteSpace(workspaceId))
+            return;
 
-        _isGenerating = true;
-        _errorMessage = null;
-        _downloadToken = null;
-        _progressSteps.Clear();
+        _workspace = await WorkspaceStore.GetAsync(workspaceId);
+        _selectedWorkspaceId = _workspace.Id;
+        _workspaceNameDraft = _workspace.Name;
+        _selectedModel = _workspace.SelectedModel;
+        _prompt = string.IsNullOrWhiteSpace(_workspace.Prompt) ? ReportOptions.DefaultPrompt : _workspace.Prompt;
+        _task = string.IsNullOrWhiteSpace(_workspace.Task) ? ReportOptions.DefaultTask : _workspace.Task;
+        _examples = _workspace.Examples.AsReadOnly();
+        _examSummaryEditable = _workspace.Exam.SummaryFinal ?? string.Empty;
+        _resultsPreviewStudents = Clone(_workspace.ResultsAnalysis.Students);
+        _diffPreview = null;
+
+        LoadLatestRunRows();
+    }
+
+    private void LoadLatestRunRows()
+    {
         _reportRows.Clear();
-        _totalStudents = 0;
-        _doneStudents = 0;
-        _awaitingReview = false;
-        _summaryWasFallback = false;
-        _examSummaryEditable = string.Empty;
-        _generationCts = new CancellationTokenSource();
-        var ct = _generationCts.Token;
+        _downloadToken = null;
+        if (_workspace is null)
+            return;
 
-        var tempDir = Path.Combine(Path.GetTempPath(), $"reportgen_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
+        var run = _workspace.ResultsAnalysis.Runs.FirstOrDefault();
+        if (run is null)
+            return;
 
-        string? examTempPath = null;
-        string? sheetTempPath = null;
+        foreach (var row in run.Rows)
+            _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
 
+        if (!string.IsNullOrWhiteSpace(run.ReportFilePath) && File.Exists(run.ReportFilePath))
+            _downloadToken = DownloadTokenStore.Register(run.ReportFilePath);
+    }
+
+    private async Task OnWorkspaceChanged(ChangeEventArgs args)
+    {
+        var id = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(id))
+            return;
+
+        await LoadWorkspaceAsync(id);
+    }
+
+    private async Task CreateWorkspaceAsync()
+    {
+        _errorMessage = null;
         try
         {
-            // Save uploaded files to temp paths
-            var examExt = Path.GetExtension(_examFileName ?? ".pdf");
-            examTempPath = Path.Combine(tempDir, $"exam{examExt}");
-            await File.WriteAllBytesAsync(examTempPath, _examData, ct);
+            var created = await WorkspaceStore.CreateAsync(
+                $"Workspace {DateTimeOffset.Now:yyyy-MM-dd HHmm}",
+                WorkspaceKind,
+                _selectedModel,
+                _prompt,
+                _task);
 
-            sheetTempPath = Path.Combine(tempDir, "sheet.xlsx");
-            await File.WriteAllBytesAsync(sheetTempPath, _sheetData, ct);
-
-            // Step: extract exam
-            var extractStep = AddStep("Extracting exam paper");
-            await InvokeAsync(StateHasChanged);
-
-            string examText;
-            try
-            {
-                examText = await ContentExtractor.ExtractAsync(examTempPath, ct);
-                SetStep(extractStep, StepStatus.Done);
-            }
-            catch (Exception ex)
-            {
-                SetStep(extractStep, StepStatus.Failed, ex.Message);
-                _errorMessage = $"Failed to read exam file: {ex.Message}";
-                return;
-            }
-
-            // Step: load results spreadsheet
-            var loadStep = AddStep("Loading results spreadsheet");
-            await InvokeAsync(StateHasChanged);
-
-            IReadOnlyList<ResultsRow> students;
-            try
-            {
-                students = ResultsExtractor.Extract(sheetTempPath);
-                SetStep(loadStep, StepStatus.Done, $"{students.Count} student(s) found");
-            }
-            catch (Exception ex)
-            {
-                SetStep(loadStep, StepStatus.Failed, ex.Message);
-                _errorMessage = $"Failed to read results spreadsheet: {ex.Message}";
-                return;
-            }
-
-            // Step: summarise exam paper via LLM
-            OllamaOptions.Model = _selectedModel;
-            var summaryStep = AddStep("Summarising exam paper");
-            await InvokeAsync(StateHasChanged);
-
-            string examContext;
-            try
-            {
-                var summaryPrompt = PromptBuilder.BuildExamSummaryPrompt(examText);
-                var summary = await OllamaClient.SendPromptAsync(summaryPrompt, ct);
-                examContext = summary;
-                _summaryWasFallback = false;
-                SetStep(summaryStep, StepStatus.Done, "Review the summary below before continuing");
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                examContext = examText;
-                _summaryWasFallback = true;
-                SetStep(summaryStep, StepStatus.Done, $"Summarisation failed — using raw text ({ex.Message})");
-            }
-
-            // Pause for teacher to review / edit the summary
-            _examSummaryEditable = examContext;
-            _awaitingReview = true;
-            _reviewTcs = new TaskCompletionSource<string>();
-            await InvokeAsync(StateHasChanged);
-
-            // Await teacher confirmation; result is the (possibly edited) summary text
-            examContext = await _reviewTcs.Task;
-            _awaitingReview = false;
-            await InvokeAsync(StateHasChanged);
-
-            if (ct.IsCancellationRequested) return;
-
-            _totalStudents = students.Count;
-            await InvokeAsync(StateHasChanged);
-
-            using var writer = new ReportWriter();
-
-            for (var i = 0; i < students.Count; i++)
-            {
-                if (ct.IsCancellationRequested) break;
-
-                var student = students[i];
-                // Display name uses student number and class; "Jane" placeholder is embedded in the prompt.
-                var displayName = $"{student.StudentNumber} / {student.Class}";
-                var studentStep = AddStep(displayName, StepStatus.InProgress);
-                await InvokeAsync(StateHasChanged);
-
-                var effectivePrompt = string.IsNullOrWhiteSpace(_prompt)
-                    ? ReportOptions.DefaultPrompt
-                    : _prompt;
-
-                var effectiveTask = string.IsNullOrWhiteSpace(_task)
-                    ? ReportOptions.DefaultTask
-                    : _task;
-
-                var fullPrompt = PromptBuilder.BuildResultsPrompt(
-                    examContext,
-                    student,
-                    effectivePrompt,
-                    effectiveTask,
-                    _examples.Count > 0
-                        ? _examples.Select(e => (e.Grade, e.Text)).ToList()
-                        : null);
-
-                // Write prompt file for inspection
-                var promptFile = Path.Combine(tempDir, $"{i + 1}.txt");
-                await File.WriteAllTextAsync(promptFile, fullPrompt, ct);
-
-                OllamaOptions.Model = _selectedModel;
-
-                // Try up to 3 times (attempt 3 asks user)
-                string? reportText = null;
-                for (var attempt = 1; attempt <= 3; attempt++)
-                {
-                    if (ct.IsCancellationRequested) break;
-
-                    if (attempt == 3)
-                    {
-                        _retryStudentName = displayName;
-                        _retryCts = new TaskCompletionSource<bool>();
-                        await InvokeAsync(StateHasChanged);
-
-                        var retry = await _retryCts.Task;
-                        _retryStudentName = null;
-                        _retryCts = null;
-
-                        if (!retry)
-                        {
-                            SetStep(studentStep, StepStatus.Skipped);
-                            _doneStudents++;
-                            break;
-                        }
-                    }
-
-                    try
-                    {
-                        reportText = await OllamaClient.SendPromptAsync(fullPrompt, ct);
-                        break;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception) when (attempt < 3)
-                    {
-                        SetStep(studentStep, StepStatus.InProgress, $"Attempt {attempt} failed — retrying…");
-                        await InvokeAsync(StateHasChanged);
-                        await Task.Delay(600, ct);
-                        SetStep(studentStep, StepStatus.InProgress);
-                    }
-                }
-
-                if (reportText is not null)
-                {
-                    writer.AddRow(i + 1, reportText);
-                    _reportRows.Add(new ReportRow(i + 1, displayName, reportText, fullPrompt));
-                    SetStep(studentStep, StepStatus.Done);
-                    _doneStudents++;
-                }
-
-                await InvokeAsync(StateHasChanged);
-            }
-
-            if (_reportRows.Count > 0)
-            {
-                var savedPath = await writer.SaveAsync(tempDir, ct);
-                _downloadToken = DownloadTokenStore.Register(savedPath);
-            }
-            else
-            {
-                AddStep("No reports were generated", StepStatus.Failed);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            AddStep("Generation cancelled", StepStatus.Failed);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(created.Id);
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Unexpected error: {ex.Message}";
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private async Task RenameWorkspaceAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        _errorMessage = null;
+        try
+        {
+            await WorkspaceStore.RenameAsync(_workspace.Id, _workspaceNameDraft);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private Task OnExamplesChanged(IReadOnlyList<ExampleReport> examples)
+    {
+        _examples = examples;
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveConfigurationAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveConfigurationAsync(_workspace.Id, _selectedModel, _prompt, _task, _examples);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task OnExamUpload(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        _examUploadFileName = file.Name;
+        using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        _examUploadData = ms.ToArray();
+    }
+
+    private async Task OnResultsSheetUpload(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        _resultsSheetUploadFileName = file.Name;
+        using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        _resultsSheetUploadData = ms.ToArray();
+    }
+
+    private async Task ProcessExamAsync()
+    {
+        if (_workspace is null || _examUploadData is null || string.IsNullOrWhiteSpace(_examUploadFileName))
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.ProcessExamAsync(
+                _workspace.Id,
+                _examUploadFileName,
+                _examUploadData,
+                _examSummaryEditable);
+
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task SaveExamSummaryAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveExamSummaryAsync(_workspace.Id, _examSummaryEditable);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task PreprocessResultsSheetAsync()
+    {
+        if (_workspace is null || _resultsSheetUploadData is null || string.IsNullOrWhiteSpace(_resultsSheetUploadFileName))
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.PreprocessResultsSheetAsync(_workspace.Id, _resultsSheetUploadFileName, _resultsSheetUploadData);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task SaveResultsSheetSnapshotAsync()
+    {
+        if (_workspace is null || _resultsPreviewStudents.Count == 0)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveResultsSheetSnapshotAsync(_workspace.Id, _resultsPreviewStudents);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task GenerateReportsAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        _progressSteps.Clear();
+        _doneStudents = 0;
+        _totalStudents = _workspace.ResultsAnalysis.Students.Count;
+
+        await RunBusyAsync(async () =>
+        {
+            var result = await WorkspacePipeline.GenerateResultsAnalysisReportsAsync(
+                _workspace.Id,
+                step =>
+                {
+                    _progressSteps.Add(step);
+                    if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
+                        _doneStudents++;
+                    InvokeAsync(StateHasChanged);
+                });
+
+            _workspace = result.Workspace;
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task PreviewDiffAsync(int versionNumber)
+    {
+        if (_workspace is null)
+            return;
+
+        _diffPreview = await WorkspaceStore.BuildDiffPreviewAsync(_workspace.Id, versionNumber);
+    }
+
+    private async Task RestoreVersionAsync(int versionNumber)
+    {
+        if (_workspace is null)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspaceStore.RestoreVersionAsync(_workspace.Id, versionNumber);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
         }
         finally
         {
-            if (examTempPath is not null) TryDelete(examTempPath);
-            if (sheetTempPath is not null) TryDelete(sheetTempPath);
-
-            _awaitingReview = false;
-            _isGenerating = false;
-            _generationCts?.Dispose();
-            _generationCts = null;
-            await InvokeAsync(StateHasChanged);
+            _isBusy = false;
         }
     }
 
-    private void OnCancelClicked()
-    {
-        _generationCts?.Cancel();
-        _retryCts?.TrySetCanceled();
-        _reviewTcs?.TrySetCanceled();
-    }
+    private static string RenderProcessed(DateTimeOffset? value)
+        => value is null ? "Not processed" : $"Processed {value.Value.LocalDateTime:yyyy-MM-dd HH:mm}";
 
-    private void OnReviewContinueClicked()
-        => _reviewTcs?.TrySetResult(_examSummaryEditable);
+    private static int? ParseIntOrNull(string? value)
+        => int.TryParse(value, out var parsed) ? parsed : null;
 
-    private void OnRetryDecision(bool retry)
-        => _retryCts?.TrySetResult(retry);
+    private static double? ParseDoubleOrNull(string? value)
+        => double.TryParse(value, out var parsed) ? parsed : null;
 
-    // ── step helpers ──────────────────────────────────────────────────────────
+    private static int ParseIntOrDefault(string? value, int fallback)
+        => int.TryParse(value, out var parsed) ? parsed : fallback;
 
-    /// <summary>Appends a new step and returns its index.</summary>
-    private int AddStep(string label, StepStatus status = StepStatus.Pending, string? detail = null)
-    {
-        _progressSteps.Add(new ProgressStep(label, status, detail));
-        return _progressSteps.Count - 1;
-    }
+    private void ToggleResultsPreview()
+        => _resultsPreviewCollapsed = !_resultsPreviewCollapsed;
 
-    /// <summary>Updates an existing step in place.</summary>
-    private void SetStep(int index, StepStatus status, string? detail = null)
-        => _progressSteps[index] = _progressSteps[index] with { Status = status, Detail = detail };
-
-    private static void TryDelete(string path)
-    {
-        try { File.Delete(path); } catch { /* best-effort */ }
-    }
+    private static List<WorkspaceResultsStudentSnapshot> Clone(IReadOnlyList<WorkspaceResultsStudentSnapshot> source)
+        => source
+            .Select(s => new WorkspaceResultsStudentSnapshot
+            {
+                StudentNumber = s.StudentNumber,
+                Class = s.Class,
+                Total = s.Total,
+                Percentage = s.Percentage,
+                Rank = s.Rank,
+                Grade = s.Grade,
+                Marks = s.Marks.Select(m => new WorkspaceQuestionMarkSnapshot
+                {
+                    Label = m.Label,
+                    StudentMark = m.StudentMark,
+                    MaxMark = m.MaxMark,
+                }).ToList(),
+            })
+            .ToList();
 }

@@ -347,3 +347,4 @@ healthchecksdb
 
 .vscode/settings.json
 reports/*
+ReportGenerator/src/ReportGenerator.Web/AppData/workspaces/
