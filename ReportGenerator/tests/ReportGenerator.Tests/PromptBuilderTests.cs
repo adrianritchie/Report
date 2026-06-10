@@ -269,12 +269,23 @@ public sealed class BuildResultsPromptTests
     [Fact]
     public void BuildResultsPrompt_ContainsExampleReportsSection_WhenExamplesProvided()
     {
-        var row = MakeRow();
+        var row = MakeRow(grade: "G");
         var examples = new[] { ("G", "A solid effort across the paper.") };
         var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask,
             examples: examples);
         Assert.Contains("[EXAMPLE REPORTS]", result);
         Assert.Contains("A solid effort across the paper.", result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_OmitsExampleSection_WhenNoGradeMatchedExamples()
+    {
+        var row = MakeRow(grade: "VG");
+        var examples = new[] { ("G", "A solid effort across the paper.") };
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask,
+            examples: examples);
+        Assert.DoesNotContain("[EXAMPLE REPORTS]", result);
+        Assert.DoesNotContain("A solid effort across the paper.", result);
     }
 
     [Fact]

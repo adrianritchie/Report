@@ -597,6 +597,8 @@
             return;
 
         _progressSteps.Clear();
+        _reportRows.Clear();
+        _downloadToken = null;
         _doneStudents = 0;
         _totalStudents = _workspace.Sheet.Students.Count;
 
@@ -610,6 +612,14 @@
                     if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
                         _doneStudents++;
                     InvokeAsync(StateHasChanged);
+                },
+                row =>
+                {
+                    _ = InvokeAsync(() =>
+                    {
+                        _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
+                        StateHasChanged();
+                    });
                 });
 
             _workspace = result.Workspace;

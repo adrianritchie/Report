@@ -176,18 +176,24 @@ public sealed class PromptBuilder
         sb.AppendLine(teacherPrompt.Trim());
         sb.AppendLine();
 
-        if (examples is { Count: > 0 })
+        var gradeMatchedExamples = examples?
+            .Where(e =>
+                !string.IsNullOrWhiteSpace(row.Grade) &&
+                string.Equals(e.Grade, row.Grade, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (gradeMatchedExamples is { Count: > 0 })
         {
             sb.AppendLine("[EXAMPLE REPORTS]");
             sb.AppendLine(
                 "The following are real examples of reports written for this class, " +
-                "labelled by grade band. Use them as a reference for the expected " +
+                "for students in the same grade band. Use them as a reference for the expected " +
                 "tone, length, and phrasing.");
             sb.AppendLine();
 
             foreach (var (code, label) in GradeBands)
             {
-                foreach (var ex in examples.Where(e =>
+                foreach (var ex in gradeMatchedExamples.Where(e =>
                     string.Equals(e.Grade, code, StringComparison.OrdinalIgnoreCase)))
                 {
                     if (string.IsNullOrWhiteSpace(ex.Text))

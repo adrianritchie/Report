@@ -177,6 +177,7 @@ public sealed class WorkspacePipelineService(
     public async Task<(WorkspaceState Workspace, IReadOnlyList<ProgressStep> Steps)> GenerateReportsAsync(
         string workspaceId,
         Action<ProgressStep>? onStudentStep = null,
+        Action<ReportRowSnapshot>? onReportGenerated = null,
         CancellationToken cancellationToken = default)
     {
         var workspace = await workspaceStore.GetAsync(workspaceId);
@@ -244,6 +245,7 @@ public sealed class WorkspacePipelineService(
                     PromptText = fullPrompt,
                 };
                 rows.Add(row);
+                onReportGenerated?.Invoke(row);
 
                 var done = new ProgressStep(student.Name, StepStatus.Done);
                 steps.Add(done);
@@ -266,6 +268,7 @@ public sealed class WorkspacePipelineService(
     public async Task<(WorkspaceState Workspace, IReadOnlyList<ProgressStep> Steps)> GenerateResultsAnalysisReportsAsync(
         string workspaceId,
         Action<ProgressStep>? onStudentStep = null,
+        Action<ReportRowSnapshot>? onReportGenerated = null,
         CancellationToken cancellationToken = default)
     {
         var workspace = await workspaceStore.GetAsync(workspaceId);
@@ -338,6 +341,7 @@ public sealed class WorkspacePipelineService(
                     PromptText = fullPrompt,
                 };
                 rows.Add(row);
+                onReportGenerated?.Invoke(row);
 
                 var done = new ProgressStep(row.StudentName, StepStatus.Done);
                 steps.Add(done);
