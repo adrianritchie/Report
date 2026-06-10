@@ -200,6 +200,13 @@
                         disabled="@(_isBusy || string.IsNullOrWhiteSpace(_workspace.Exam.SummaryFinal) || _workspace.Sheet.Students.Count == 0)">
                     Generate Reports
                 </button>
+                @if (_isGeneratingReports)
+                {
+                    <button class="ml-2 inline-flex items-center gap-2 border border-red-300 text-red-700 hover:bg-red-50 font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="CancelGeneration">
+                        Cancel Generation
+                    </button>
+                }
                 @if (_workspace.Reports.Runs.Count > 0)
                 {
                     <span class="text-xs text-slate-500 ml-3">Latest run: @_workspace.Reports.Runs[0].RunId</span>
@@ -300,6 +307,8 @@
 
     private readonly List<ProgressStep> _progressSteps = [];
     private readonly List<ReportRow> _reportRows = [];
+    private CancellationTokenSource? _generationCts;
+    private bool _isGeneratingReports;
     private int _totalStudents;
     private int _doneStudents;
     private bool _initAttempted;
@@ -604,28 +613,51 @@
 
         await RunBusyAsync(async () =>
         {
-            var result = await WorkspacePipeline.GenerateReportsAsync(
-                _workspace.Id,
-                step =>
-                {
-                    _progressSteps.Add(step);
-                    if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
-                        _doneStudents++;
-                    InvokeAsync(StateHasChanged);
-                },
-                row =>
-                {
-                    _ = InvokeAsync(() =>
-                    {
-                        _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
-                        StateHasChanged();
-                    });
-                });
+            using var generationCts = new CancellationTokenSource();
+            _generationCts = generationCts;
+            _isGeneratingReports = true;
 
-            _workspace = result.Workspace;
-            await LoadWorkspacesAsync();
-            await LoadWorkspaceAsync(_workspace.Id);
+            try
+            {
+                var result = await WorkspacePipeline.GenerateReportsAsync(
+                    _workspace.Id,
+                    step =>
+                    {
+                        _progressSteps.Add(step);
+                        if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
+                            _doneStudents++;
+                        InvokeAsync(StateHasChanged);
+                    },
+                    row =>
+                    {
+                        _ = InvokeAsync(() =>
+                        {
+                            _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
+                            StateHasChanged();
+                        });
+                    },
+                    generationCts.Token);
+
+                _workspace = result.Workspace;
+                await LoadWorkspacesAsync();
+                await LoadWorkspaceAsync(_workspace.Id);
+            }
+            catch (OperationCanceledException)
+            {
+                _progressSteps.Add(new ProgressStep("Generation cancelled by user.", StepStatus.Skipped));
+            }
+            finally
+            {
+                _isGeneratingReports = false;
+                _generationCts = null;
+                await InvokeAsync(StateHasChanged);
+            }
         });
+    }
+
+    private void CancelGeneration()
+    {
+        _generationCts?.Cancel();
     }
 
     private async Task PreviewDiffAsync(int versionNumber)

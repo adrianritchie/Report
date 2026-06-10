@@ -160,13 +160,15 @@
                                     <th class="px-2 py-2 font-semibold min-w-24">Percentage</th>
                                     <th class="px-2 py-2 font-semibold min-w-16">Rank</th>
                                     <th class="px-2 py-2 font-semibold min-w-20">Grade</th>
-                                    <th class="px-2 py-2 font-semibold min-w-80">Question Marks</th>
+                                    <th class="px-2 py-2 font-semibold min-w-24">Marks</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
                                 @for (var studentIndex = 0; studentIndex < _resultsPreviewStudents.Count; studentIndex++)
                                 {
+                                    var rowIndex = studentIndex;
                                     var row = _resultsPreviewStudents[studentIndex];
+                                    var showMarks = _expandedResultsMarks.Contains(rowIndex);
                                     <tr>
                                         <td class="px-2 py-2 align-top">
                                             <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
@@ -199,26 +201,42 @@
                                                    @oninput="e => row.Grade = e.Value?.ToString()" />
                                         </td>
                                         <td class="px-2 py-2 align-top">
-                                            <div class="grid grid-cols-1 gap-1">
-                                                @for (var markIndex = 0; markIndex < row.Marks.Count; markIndex++)
-                                                {
-                                                    var mark = row.Marks[markIndex];
-                                                    <div class="flex items-center gap-1">
-                                                        <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
-                                                               value="@mark.Label"
-                                                               @oninput="e => mark.Label = e.Value?.ToString() ?? string.Empty" />
-                                                        <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
-                                                               value="@(mark.StudentMark?.ToString() ?? string.Empty)"
-                                                               @oninput="e => mark.StudentMark = ParseIntOrNull(e.Value?.ToString())" />
-                                                        <span class="text-slate-500">/</span>
-                                                        <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
-                                                               value="@mark.MaxMark"
-                                                               @oninput="e => mark.MaxMark = ParseIntOrDefault(e.Value?.ToString(), mark.MaxMark)" />
-                                                    </div>
-                                                }
-                                            </div>
+                                            <button type="button"
+                                                    class="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
+                                                    @onclick="() => ToggleResultsMarks(rowIndex)">
+                                                @(showMarks ? "Hide" : "Show")
+                                            </button>
                                         </td>
                                     </tr>
+
+                                    @if (showMarks)
+                                    {
+                                        <tr class="bg-slate-50">
+                                            <td colspan="7" class="px-2 pb-3 pt-1">
+                                                <div class="rounded border border-slate-200 bg-white p-2">
+                                                    <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question Marks</p>
+                                                    <div class="grid grid-cols-1 gap-1">
+                                                        @for (var markIndex = 0; markIndex < row.Marks.Count; markIndex++)
+                                                        {
+                                                            var mark = row.Marks[markIndex];
+                                                            <div class="flex items-center gap-1">
+                                                                <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                                       value="@mark.Label"
+                                                                       @oninput="e => mark.Label = e.Value?.ToString() ?? string.Empty" />
+                                                                <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                                       value="@(mark.StudentMark?.ToString() ?? string.Empty)"
+                                                                       @oninput="e => mark.StudentMark = ParseIntOrNull(e.Value?.ToString())" />
+                                                                <span class="text-slate-500">/</span>
+                                                                <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                                       value="@mark.MaxMark"
+                                                                       @oninput="e => mark.MaxMark = ParseIntOrDefault(e.Value?.ToString(), mark.MaxMark)" />
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -244,6 +262,13 @@
                         disabled="@(_isBusy || string.IsNullOrWhiteSpace(_workspace.Exam.SummaryFinal) || _workspace.ResultsAnalysis.Students.Count == 0)">
                     Generate Reports
                 </button>
+                @if (_isGeneratingReports)
+                {
+                    <button class="ml-2 inline-flex items-center gap-2 border border-red-300 text-red-700 hover:bg-red-50 font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="CancelGeneration">
+                        Cancel Generation
+                    </button>
+                }
                 @if (_workspace.ResultsAnalysis.Runs.Count > 0)
                 {
                     <span class="text-xs text-slate-500 ml-3">Latest run: @_workspace.ResultsAnalysis.Runs[0].RunId</span>
@@ -346,6 +371,9 @@
 
     private readonly List<ProgressStep> _progressSteps = [];
     private readonly List<ReportRow> _reportRows = [];
+    private readonly HashSet<int> _expandedResultsMarks = [];
+    private CancellationTokenSource? _generationCts;
+    private bool _isGeneratingReports;
     private int _totalStudents;
     private int _doneStudents;
     private bool _initAttempted;
@@ -436,6 +464,7 @@
         _examples = _workspace.Examples.AsReadOnly();
         _examSummaryEditable = _workspace.Exam.SummaryFinal ?? string.Empty;
         _resultsPreviewStudents = Clone(_workspace.ResultsAnalysis.Students);
+        _expandedResultsMarks.Clear();
         _diffPreview = null;
 
         LoadLatestRunRows();
@@ -595,28 +624,51 @@
 
         await RunBusyAsync(async () =>
         {
-            var result = await WorkspacePipeline.GenerateResultsAnalysisReportsAsync(
-                _workspace.Id,
-                step =>
-                {
-                    _progressSteps.Add(step);
-                    if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
-                        _doneStudents++;
-                    InvokeAsync(StateHasChanged);
-                },
-                row =>
-                {
-                    _ = InvokeAsync(() =>
-                    {
-                        _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
-                        StateHasChanged();
-                    });
-                });
+            using var generationCts = new CancellationTokenSource();
+            _generationCts = generationCts;
+            _isGeneratingReports = true;
 
-            _workspace = result.Workspace;
-            await LoadWorkspacesAsync();
-            await LoadWorkspaceAsync(_workspace.Id);
+            try
+            {
+                var result = await WorkspacePipeline.GenerateResultsAnalysisReportsAsync(
+                    _workspace.Id,
+                    step =>
+                    {
+                        _progressSteps.Add(step);
+                        if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
+                            _doneStudents++;
+                        InvokeAsync(StateHasChanged);
+                    },
+                    row =>
+                    {
+                        _ = InvokeAsync(() =>
+                        {
+                            _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
+                            StateHasChanged();
+                        });
+                    },
+                    generationCts.Token);
+
+                _workspace = result.Workspace;
+                await LoadWorkspacesAsync();
+                await LoadWorkspaceAsync(_workspace.Id);
+            }
+            catch (OperationCanceledException)
+            {
+                _progressSteps.Add(new ProgressStep("Generation cancelled by user.", StepStatus.Skipped));
+            }
+            finally
+            {
+                _isGeneratingReports = false;
+                _generationCts = null;
+                await InvokeAsync(StateHasChanged);
+            }
         });
+    }
+
+    private void CancelGeneration()
+    {
+        _generationCts?.Cancel();
     }
 
     private async Task PreviewDiffAsync(int versionNumber)
@@ -672,6 +724,12 @@
 
     private void ToggleResultsPreview()
         => _resultsPreviewCollapsed = !_resultsPreviewCollapsed;
+
+    private void ToggleResultsMarks(int studentIndex)
+    {
+        if (!_expandedResultsMarks.Add(studentIndex))
+            _expandedResultsMarks.Remove(studentIndex);
+    }
 
     private static List<WorkspaceResultsStudentSnapshot> Clone(IReadOnlyList<WorkspaceResultsStudentSnapshot> source)
         => source
