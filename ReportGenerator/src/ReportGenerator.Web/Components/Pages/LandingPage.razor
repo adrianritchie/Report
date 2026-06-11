@@ -98,11 +98,50 @@
             </div>
         }
     </section>
+
+    <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+        <div class="flex items-center justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-800">Advanced Level Reports Workspaces</h3>
+                <p class="text-xs text-slate-500">Use these for advanced-level topic test results workflows.</p>
+            </div>
+            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                    @onclick="CreateAdvancedLevelWorkspaceAsync"
+                    disabled="@_isBusy">
+                Create Advanced Level Workspace
+            </button>
+        </div>
+
+        @if (_advancedLevelWorkspaces.Count == 0)
+        {
+            <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5">
+                <p class="text-sm font-medium text-slate-700">No advanced-level workspaces yet.</p>
+                <p class="text-xs text-slate-500 mt-1">Create one to process exam context, marks data, and topic-level test results, then generate advanced-level reports.</p>
+            </div>
+        }
+        else
+        {
+            <div class="space-y-2">
+                @foreach (var ws in _advancedLevelWorkspaces)
+                {
+                    <div class="flex flex-wrap items-center gap-3 border border-slate-200 rounded-lg px-3 py-2">
+                        <span class="text-sm font-semibold text-slate-700">@ws.Name</span>
+                        <span class="text-xs text-slate-500">v@ws.CurrentVersion</span>
+                        <span class="text-xs text-slate-400">Updated @ws.UpdatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</span>
+                        <button class="ml-auto text-xs text-slate-700 hover:text-slate-900 font-medium" @onclick="() => CloneWorkspaceAsync(ws.Id)">Clone</button>
+                        <button class="text-xs text-rose-700 hover:text-rose-900 font-medium" @onclick="() => DeleteWorkspaceAsync(ws.Id)">Delete</button>
+                        <button class="text-sm text-indigo-700 hover:text-indigo-900 font-medium" @onclick="() => OpenAdvancedLevelWorkspace(ws.Id)">Open</button>
+                    </div>
+                }
+            </div>
+        }
+    </section>
 </div>
 
 @code {
     private readonly List<WorkspaceSummary> _feedbackWorkspaces = [];
     private readonly List<WorkspaceSummary> _resultsWorkspaces = [];
+    private readonly List<WorkspaceSummary> _advancedLevelWorkspaces = [];
     private bool _isBusy;
     private string? _errorMessage;
 
@@ -115,9 +154,11 @@
     {
         _feedbackWorkspaces.Clear();
         _resultsWorkspaces.Clear();
+        _advancedLevelWorkspaces.Clear();
 
         _feedbackWorkspaces.AddRange(await WorkspaceStore.ListAsync(WorkspaceKinds.Feedback));
         _resultsWorkspaces.AddRange(await WorkspaceStore.ListAsync(WorkspaceKinds.Results));
+        _advancedLevelWorkspaces.AddRange(await WorkspaceStore.ListAsync(WorkspaceKinds.AdvancedLevel));
     }
 
     private async Task CreateFeedbackWorkspaceAsync()
@@ -128,6 +169,11 @@
     private async Task CreateResultsWorkspaceAsync()
     {
         await CreateAndOpenAsync(WorkspaceKinds.Results, "/results");
+    }
+
+    private async Task CreateAdvancedLevelWorkspaceAsync()
+    {
+        await CreateAndOpenAsync(WorkspaceKinds.AdvancedLevel, "/advanced-level");
     }
 
     private async Task CreateAndOpenAsync(string kind, string route)
@@ -169,9 +215,13 @@
             {
                 Navigation.NavigateTo($"/feedback?workspaceId={Uri.EscapeDataString(clone.Id)}", forceLoad: true);
             }
-            else
+            else if (string.Equals(clone.Kind, WorkspaceKinds.Results, StringComparison.OrdinalIgnoreCase))
             {
                 Navigation.NavigateTo($"/results?workspaceId={Uri.EscapeDataString(clone.Id)}", forceLoad: true);
+            }
+            else
+            {
+                Navigation.NavigateTo($"/advanced-level?workspaceId={Uri.EscapeDataString(clone.Id)}", forceLoad: true);
             }
         }
         catch (Exception ex)
@@ -211,4 +261,6 @@
     private void OpenFeedbackWorkspace(string workspaceId) => OpenWorkspace("/feedback", workspaceId);
 
     private void OpenResultsWorkspace(string workspaceId) => OpenWorkspace("/results", workspaceId);
+
+    private void OpenAdvancedLevelWorkspace(string workspaceId) => OpenWorkspace("/advanced-level", workspaceId);
 }

@@ -1,3 +1,4 @@
+using System.Text;
 using ReportGenerator.Extraction;
 
 namespace ReportGenerator.Report;
@@ -217,5 +218,141 @@ public sealed class PromptBuilder
         sb.AppendLine(taskText.Trim());
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Assembles the structured prompt for advanced-level reports, including both
+    /// the student's results and their topic-level test results as separate sections.
+    /// </summary>
+    public string BuildAdvancedLevelPrompt(
+        string examContext,
+        ResultsRow resultsRow,
+        AdvancedLevelRow? advancedRow,
+        string teacherPrompt,
+        string taskText,
+        IReadOnlyList<(string Grade, string Text)>? examples = null)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("[STUDENT]");
+        sb.AppendLine($"Jane / {resultsRow.StudentNumber} / Class {resultsRow.Class}");
+        sb.AppendLine();
+
+        if (!string.IsNullOrWhiteSpace(resultsRow.ClassInteractionKeywords))
+        {
+            sb.AppendLine("[CLASS INTERACTION KEYWORDS]");
+            sb.AppendLine(resultsRow.ClassInteractionKeywords.Trim());
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("[EXAM PAPER]");
+        sb.AppendLine(examContext.Trim());
+        sb.AppendLine();
+
+        sb.AppendLine("[STUDENT RESULTS]");
+        foreach (var mark in resultsRow.Marks)
+        {
+            if (mark.StudentMark is null)
+                sb.AppendLine($"Q{mark.Label}: not attempted (max {mark.MaxMark})");
+            else
+                sb.AppendLine($"Q{mark.Label}: {mark.StudentMark} / {mark.MaxMark}");
+        }
+
+        if (resultsRow.Total is not null || resultsRow.Percentage is not null || resultsRow.Rank is not null)
+        {
+            var parts = new List<string>();
+            if (resultsRow.Total is not null) parts.Add($"Total: {resultsRow.Total}");
+            if (resultsRow.Percentage is not null) parts.Add($"Percentage: {resultsRow.Percentage:0.##}%");
+            if (resultsRow.Rank is not null) parts.Add($"Rank in year: {resultsRow.Rank}");
+            sb.AppendLine(string.Join(" | ", parts));
+        }
+
+        sb.AppendLine();
+
+        if (advancedRow is not null)
+        {
+            sb.AppendLine("[TOPIC TEST RESULTS]");
+            foreach (var topic in advancedRow.Topics)
+            {
+                var markStr = topic.Mark.HasValue ? topic.Mark.Value.ToString() : "—";
+                var pctStr = topic.Percentage.HasValue ? $"{topic.Percentage:0.##}%" : "—";
+                var gradeStr = topic.Grade ?? "—";
+                sb.AppendLine($"{topic.TopicName}: {markStr} marks, {pctStr}, grade {gradeStr}");
+            }
+
+            if (advancedRow.Exam is not null)
+            {
+                var examMarkStr = advancedRow.Exam.Mark.HasValue ? advancedRow.Exam.Mark.Value.ToString() : "—";
+                var examPctStr = advancedRow.Exam.Percentage.HasValue ? $"{advancedRow.Exam.Percentage:0.##}%" : "—";
+                var examGradeStr = advancedRow.Exam.Grade ?? "—";
+                sb.AppendLine($"Exam: {examMarkStr} marks, {examPctStr}, grade {examGradeStr}");
+            }
+
+            if (advancedRow.AveragePercentage.HasValue || !string.IsNullOrWhiteSpace(advancedRow.OverallGrade))
+            {
+                var avPctStr = advancedRow.AveragePercentage.HasValue ? $"{advancedRow.AveragePercentage:0.##}%" : "—";
+                var gradeStr = advancedRow.OverallGrade ?? "—";
+                sb.AppendLine($"Overall: {avPctStr} average, grade {gradeStr}");
+            }
+
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("[TEACHER INSTRUCTIONS]");
+        sb.AppendLine(teacherPrompt.Trim());
+        sb.AppendLine();
+
+        var overallGrade = advancedRow?.OverallGrade ?? resultsRow.Grade;
+        var matchedGrades = NormalizeAndExpandGrades(overallGrade);
+
+        if (matchedGrades.Count > 0 && examples is { Count: > 0 })
+        {
+            var matchingExamples = examples
+                .Where(e => !string.IsNullOrWhiteSpace(e.Text) &&
+                    matchedGrades.Contains(e.Grade.Trim().ToUpperInvariant()))
+                .ToList();
+
+            if (matchingExamples.Count > 0)
+            {
+                sb.AppendLine("[EXAMPLE REPORTS]");
+                sb.AppendLine(
+                    "The following are real examples of reports written for this class " +
+                    $"at grade {string.Join("/", matchedGrades)}. Use them as a reference for the expected " +
+                    "tone, length, and phrasing.");
+                sb.AppendLine();
+
+                foreach (var ex in matchingExamples)
+                {
+                    sb.AppendLine($"--- Grade {ex.Grade} ---");
+                    sb.AppendLine(ex.Text.Trim());
+                    sb.AppendLine();
+                }
+            }
+        }
+
+        sb.AppendLine("[TASK]");
+        sb.AppendLine(taskText.Trim());
+
+        return sb.ToString();
+    }
+
+    private static IReadOnlyList<string> NormalizeAndExpandGrades(string? grade)
+    {
+        if (string.IsNullOrWhiteSpace(grade))
+            return [];
+
+        return grade.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .SelectMany(p =>
+            {
+                var normalized = p.Trim().ToUpperInvariant();
+                return normalized switch
+                {
+                    "A*" or "A*" => (IEnumerable<string>)["A"],
+                    "U" => ["E"],
+                    _ => [normalized],
+                };
+            })
+            .Distinct()
+            .ToList();
     }
 }

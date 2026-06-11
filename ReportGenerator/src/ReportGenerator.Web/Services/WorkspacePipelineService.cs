@@ -11,6 +11,7 @@ public sealed class WorkspacePipelineService(
     IContentExtractor contentExtractor,
     IExcelExtractor excelExtractor,
     IResultsExtractor resultsExtractor,
+    IAdvancedLevelExtractor advancedLevelExtractor,
     PromptBuilder promptBuilder,
     IOllamaClient ollamaClient,
     OllamaOptions ollamaOptions,
@@ -355,6 +356,174 @@ public sealed class WorkspacePipelineService(
 
             var savedPath = await writer.SaveAsync(tempDir, cancellationToken);
             var updated = await workspaceStore.SaveResultsReportRunAsync(workspaceId, rows, savedPath);
+            return (updated, steps);
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    public async Task<WorkspaceState> PreprocessAdvancedLevelSheetAsync(
+        string workspaceId,
+        string fileName,
+        byte[] fileData,
+        CancellationToken cancellationToken = default)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"reportgen_advanced_level_sheet_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var sheetPath = Path.Combine(tempDir, "sheet.xlsx");
+            await File.WriteAllBytesAsync(sheetPath, fileData, cancellationToken);
+            var rows = advancedLevelExtractor.Extract(sheetPath);
+
+            var students = rows
+                .Select(r => new WorkspaceAdvancedLevelStudentSnapshot
+                {
+                    StudentNumber = r.StudentNumber,
+                    Topics = r.Topics
+                        .Select(t => new WorkspaceAdvancedLevelTopicSnapshot
+                        {
+                            TopicName = t.TopicName,
+                            Mark = t.Mark,
+                            Percentage = t.Percentage,
+                            Grade = t.Grade,
+                        })
+                        .ToList(),
+                    Exam = r.Exam is not null
+                        ? new WorkspaceAdvancedLevelExamSnapshot
+                        {
+                            Mark = r.Exam.Mark,
+                            Percentage = r.Exam.Percentage,
+                            Grade = r.Exam.Grade,
+                        }
+                        : null,
+                    AveragePercentage = r.AveragePercentage,
+                    OverallGrade = r.OverallGrade,
+                })
+                .ToList();
+
+            return await workspaceStore.SaveAdvancedLevelSheetProcessingAsync(workspaceId, fileName, fileData, students);
+        }
+        finally
+        {
+            TryDeleteDirectory(tempDir);
+        }
+    }
+
+    public Task<WorkspaceState> SaveAdvancedLevelSheetSnapshotAsync(
+        string workspaceId,
+        IReadOnlyList<WorkspaceAdvancedLevelStudentSnapshot> students)
+        => workspaceStore.UpdateAdvancedLevelSheetSnapshotAsync(workspaceId, students);
+
+    public async Task<(WorkspaceState Workspace, IReadOnlyList<ProgressStep> Steps)> GenerateAdvancedLevelReportsAsync(
+        string workspaceId,
+        Action<ProgressStep>? onStudentStep = null,
+        Action<ReportRowSnapshot>? onReportGenerated = null,
+        CancellationToken cancellationToken = default)
+    {
+        var workspace = await workspaceStore.GetAsync(workspaceId);
+        if (string.IsNullOrWhiteSpace(workspace.Exam.SummaryFinal))
+            throw new InvalidOperationException("Process the exam first.");
+        if (workspace.ResultsAnalysis.Students.Count == 0)
+            throw new InvalidOperationException("Preprocess the results spreadsheet first.");
+        if (workspace.AdvancedLevel.Students.Count == 0)
+            throw new InvalidOperationException("Preprocess the advanced level spreadsheet first.");
+
+        var effectivePrompt = string.IsNullOrWhiteSpace(workspace.Prompt)
+            ? reportOptions.DefaultPrompt
+            : workspace.Prompt;
+        var effectiveTask = string.IsNullOrWhiteSpace(workspace.Task)
+            ? reportOptions.DefaultTask
+            : workspace.Task;
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"reportgen_advanced_level_run_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        var steps = new List<ProgressStep>();
+        var rows = new List<ReportRowSnapshot>();
+
+        try
+        {
+            ollamaOptions.Model = workspace.SelectedModel;
+            using var writer = new ReportWriter();
+
+            for (var i = 0; i < workspace.ResultsAnalysis.Students.Count; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var resultsStudent = workspace.ResultsAnalysis.Students[i];
+                var resultsRow = new ResultsRow(
+                    resultsStudent.StudentNumber,
+                    resultsStudent.Class,
+                    resultsStudent.Marks.Select(m => new QuestionMark(m.Label, m.StudentMark, m.MaxMark)).ToList(),
+                    resultsStudent.Total,
+                    resultsStudent.Percentage,
+                    resultsStudent.Rank,
+                    resultsStudent.Grade,
+                    resultsStudent.ClassInteractionKeywords);
+
+                var advancedStudent = workspace.AdvancedLevel.Students
+                    .FirstOrDefault(s => string.Equals(s.StudentNumber, resultsStudent.StudentNumber, StringComparison.OrdinalIgnoreCase));
+
+                var advancedRow = advancedStudent is not null
+                    ? new AdvancedLevelRow(
+                        advancedStudent.StudentNumber,
+                        advancedStudent.Topics.Select(t => new AdvancedLevelTopicMark(t.TopicName, t.Mark, t.Percentage, t.Grade)).ToList(),
+                        advancedStudent.Exam is not null
+                            ? new AdvancedLevelExamMark(advancedStudent.Exam.Mark, advancedStudent.Exam.Percentage, advancedStudent.Exam.Grade)
+                            : new AdvancedLevelExamMark(null, null, null),
+                        advancedStudent.AveragePercentage,
+                        advancedStudent.OverallGrade)
+                    : null;
+
+                var fullPrompt = promptBuilder.BuildAdvancedLevelPrompt(
+                    workspace.Exam.SummaryFinal!,
+                    resultsRow,
+                    advancedRow,
+                    effectivePrompt,
+                    effectiveTask,
+                    workspace.Examples.Count > 0
+                        ? workspace.Examples.Select(e => (e.Grade, e.Text)).ToList()
+                        : null);
+
+                string reportText;
+                try
+                {
+                    reportText = await ollamaClient.SendPromptAsync(fullPrompt, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    var failed = new ProgressStep($"{resultsStudent.StudentNumber} / {resultsStudent.Class}", StepStatus.Failed, ex.Message);
+                    steps.Add(failed);
+                    onStudentStep?.Invoke(failed);
+                    continue;
+                }
+
+                writer.AddRow(i + 1, reportText);
+
+                var row = new ReportRowSnapshot
+                {
+                    SequenceNumber = i + 1,
+                    StudentName = $"{resultsStudent.StudentNumber} / {resultsStudent.Class}",
+                    ReportText = reportText,
+                    PromptText = fullPrompt,
+                };
+                rows.Add(row);
+                onReportGenerated?.Invoke(row);
+
+                var done = new ProgressStep(row.StudentName, StepStatus.Done);
+                steps.Add(done);
+                onStudentStep?.Invoke(done);
+            }
+
+            if (rows.Count == 0)
+                throw new InvalidOperationException("No reports were generated.");
+
+            var savedPath = await writer.SaveAsync(tempDir, cancellationToken);
+            var updated = await workspaceStore.SaveAdvancedLevelReportRunAsync(workspaceId, rows, savedPath);
             return (updated, steps);
         }
         finally

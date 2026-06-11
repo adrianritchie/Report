@@ -1,0 +1,1023 @@
+@page "/advanced-level"
+@rendermode InteractiveServer
+
+@using ReportGenerator.Configuration
+@using ReportGenerator.Web.Models
+@using ReportGenerator.Web.Services
+
+@inject WorkspaceStore WorkspaceStore
+@inject WorkspacePipelineService WorkspacePipeline
+@inject DownloadTokenStore DownloadTokenStore
+@inject OllamaOptions OllamaOptions
+@inject ReportOptions ReportOptions
+
+<div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+    <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Advanced Level Reports Workspace</h2>
+
+    <div class="flex flex-col gap-4">
+        <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-64 flex-1">
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Workspace Name</label>
+                <span class="text-xs text-slate-500">Version @(_workspace?.CurrentVersion ?? 0)</span>
+                <input class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                       @bind="_workspaceNameDraft"
+                       @bind:event="oninput" />
+            </div>
+            <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2.5 rounded-lg text-sm"
+                    @onclick="RenameWorkspaceAsync"
+                    disabled="@(_workspace is null)">
+                Rename
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (_workspace is not null)
+{
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Configuration</h2>
+
+        <div class="grid grid-cols-1 gap-5">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Model</label>
+                <ModelSelector @bind-SelectedModel="_selectedModel" />
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Teacher Instructions</label>
+                <PromptEditor @bind-Prompt="_prompt" />
+            </div>
+
+            <div class="border border-slate-200 rounded-lg overflow-hidden">
+                <button type="button"
+                        class="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                        @onclick="() => _taskExpanded = !_taskExpanded">
+                    <div>
+                        <span class="text-sm font-medium text-slate-700">Task Instructions</span>
+                        <span class="ml-2 text-xs text-slate-400">(click to @(_taskExpanded ? "collapse" : "expand"))</span>
+                    </div>
+                </button>
+                @if (_taskExpanded)
+                {
+                    <div class="px-4 py-3 border-t border-slate-200">
+                        <textarea rows="8"
+                                  class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm resize-y"
+                                  @bind="_task"
+                                  @bind:event="oninput"></textarea>
+                    </div>
+                }
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Example Reports</label>
+                <ExampleReportsPanel Examples="_examples" UseBrowserStorage="false" ExamplesChanged="OnExamplesChanged"
+                                     GradeBands="AdvancedLevelGradeBands" />
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-lg text-sm"
+                    @onclick="SaveConfigurationAsync">
+                Save Prompt & Config
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Stage Processing</h2>
+
+        <div class="grid grid-cols-1 gap-4">
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Process Exam Paper</p>
+                        <p class="text-xs text-slate-500">Extract text + generate editable summary. Saved automatically.</p>
+                    </div>
+                    <span class="text-xs text-slate-500">@RenderProcessed(_workspace.Exam.ProcessedUtc)</span>
+                </div>
+                <InputFile OnChange="OnExamUpload" accept=".pdf,.txt,.md,.text,.doc,.rtf,.docx"
+                           class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700" />
+                <div class="mt-3 flex flex-wrap gap-3 items-center">
+                    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="ProcessExamAsync"
+                            disabled="@(_examUploadData is null || _isBusy)">
+                        Process Exam
+                    </button>
+                    <span class="text-xs text-slate-500">@(_workspace.Exam.SourceFileName ?? "No file processed yet")</span>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_examSummaryEditable))
+                {
+                    <div class="mt-3">
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Editable summary (persisted)</label>
+                        <textarea class="w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-mono"
+                                  rows="10"
+                                  @bind="_examSummaryEditable"
+                                  @bind:event="oninput"></textarea>
+                        <button class="mt-2 inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2 rounded-lg text-xs"
+                                @onclick="SaveExamSummaryAsync"
+                                disabled="@_isBusy">
+                            Save Edited Summary
+                        </button>
+                    </div>
+                }
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Preprocess Results Spreadsheet</p>
+                        <p class="text-xs text-slate-500">Parse and persist structured results rows for report generation.</p>
+                    </div>
+                    <span class="text-xs text-slate-500">@RenderProcessed(_workspace.ResultsAnalysis.ProcessedUtc)</span>
+                </div>
+                <InputFile OnChange="OnResultsSheetUpload" accept=".xlsx"
+                           class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700" />
+                <div class="mt-3 flex flex-wrap gap-3 items-center">
+                    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="PreprocessResultsSheetAsync"
+                            disabled="@(_resultsSheetUploadData is null || _isBusy)">
+                        Preprocess Results Spreadsheet
+                    </button>
+                    <span class="text-xs text-slate-500">@(_workspace.ResultsAnalysis.Students.Count) student(s) loaded</span>
+                    @if (_resultsPreviewStudents.Count > 0)
+                    {
+                        <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-3 py-1.5 rounded-lg text-xs"
+                                @onclick="ToggleResultsPreview">
+                            @(_resultsPreviewCollapsed ? "Show Preview" : "Hide Preview")
+                        </button>
+                    }
+                </div>
+
+                @if (_resultsPreviewStudents.Count > 0 && !_resultsPreviewCollapsed)
+                {
+                    <div class="mt-4 rounded-lg border border-slate-200 overflow-x-auto">
+                        <table class="w-full text-xs text-left border-collapse">
+                            <thead class="bg-slate-100 text-slate-600 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-2 py-2 font-semibold min-w-32">Student #</th>
+                                    <th class="px-2 py-2 font-semibold min-w-24">Class</th>
+                                    <th class="px-2 py-2 font-semibold min-w-20">Total</th>
+                                    <th class="px-2 py-2 font-semibold min-w-24">Percentage</th>
+                                    <th class="px-2 py-2 font-semibold min-w-16">Rank</th>
+                                    <th class="px-2 py-2 font-semibold min-w-20">Grade</th>
+                                    <th class="px-2 py-2 font-semibold min-w-80">Class Interaction Keywords</th>
+                                    <th class="px-2 py-2 font-semibold min-w-24">Marks</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @for (var studentIndex = 0; studentIndex < _resultsPreviewStudents.Count; studentIndex++)
+                                {
+                                    var rowIndex = studentIndex;
+                                    var row = _resultsPreviewStudents[studentIndex];
+                                    var showMarks = _expandedResultsMarks.Contains(rowIndex);
+                                    <tr>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@row.StudentNumber"
+                                                   @oninput="e => row.StudentNumber = e.Value?.ToString() ?? string.Empty" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@row.Class"
+                                                   @oninput="e => row.Class = e.Value?.ToString() ?? string.Empty" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Total?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.Total = ParseIntOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Percentage?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.Percentage = ParseDoubleOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Rank?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.Rank = ParseIntOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.Grade ?? string.Empty)"
+                                                   @oninput="e => row.Grade = e.Value?.ToString()" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.ClassInteractionKeywords ?? string.Empty)"
+                                                   @oninput="e => row.ClassInteractionKeywords = e.Value?.ToString()" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
+                                            <button type="button"
+                                                    class="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
+                                                    @onclick="() => ToggleResultsMarks(rowIndex)">
+                                                @(showMarks ? "Hide" : "Show")
+                                            </button>
+                                        </td>
+                                    </tr>
+
+                                    @if (showMarks)
+                                    {
+                                        <tr class="bg-slate-50">
+                                            <td colspan="8" class="px-2 pb-3 pt-1">
+                                                <div class="rounded border border-slate-200 bg-white p-2">
+                                                    <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question Marks</p>
+                                                    <div class="grid grid-cols-1 gap-1">
+                                                        @for (var markIndex = 0; markIndex < row.Marks.Count; markIndex++)
+                                                        {
+                                                            var mark = row.Marks[markIndex];
+                                                            <div class="flex items-center gap-1">
+                                                                <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                                       value="@mark.Label"
+                                                                       @oninput="e => mark.Label = e.Value?.ToString() ?? string.Empty" />
+                                                                <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                                       value="@(mark.StudentMark?.ToString() ?? string.Empty)"
+                                                                       @oninput="e => mark.StudentMark = ParseIntOrNull(e.Value?.ToString())" />
+                                                                <span class="text-slate-500">/</span>
+                                                                <input class="w-20 rounded border border-slate-300 bg-white px-2 py-1"
+                                                                       value="@mark.MaxMark"
+                                                                       @oninput="e => mark.MaxMark = ParseIntOrDefault(e.Value?.ToString(), mark.MaxMark)" />
+                                                            </div>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button class="mt-3 inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2 rounded-lg text-xs"
+                            @onclick="SaveResultsSheetSnapshotAsync"
+                            disabled="@_isBusy">
+                        Save Edited Results Data
+                    </button>
+                }
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Preprocess Advanced Level Test Results</p>
+                        <p class="text-xs text-slate-500">Parse per-topic marks, percentages, and grades for advanced-level report generation.</p>
+                    </div>
+                    <span class="text-xs text-slate-500">@RenderProcessed(_workspace.AdvancedLevel.ProcessedUtc)</span>
+                </div>
+                <InputFile OnChange="OnAdvancedLevelSheetUpload" accept=".xlsx"
+                           class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700" />
+                <div class="mt-3 flex flex-wrap gap-3 items-center">
+                    <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="PreprocessAdvancedLevelSheetAsync"
+                            disabled="@(_advancedLevelSheetUploadData is null || _isBusy)">
+                        Preprocess Advanced Level Sheet
+                    </button>
+                    <span class="text-xs text-slate-500">@(_workspace.AdvancedLevel.Students.Count) student(s) loaded</span>
+                    @if (_advancedLevelPreviewStudents.Count > 0)
+                    {
+                        <button class="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-3 py-1.5 rounded-lg text-xs"
+                                @onclick="ToggleAdvancedLevelPreview">
+                            @(_advancedLevelPreviewCollapsed ? "Show Preview" : "Hide Preview")
+                        </button>
+                    }
+                </div>
+
+                @if (_advancedLevelPreviewStudents.Count > 0 && !_advancedLevelPreviewCollapsed)
+                {
+                    var topicNames = _advancedLevelPreviewStudents
+                        .SelectMany(s => s.Topics.Select(t => t.TopicName))
+                        .Distinct()
+                        .ToList();
+
+                    <div class="mt-4 rounded-lg border border-slate-200 overflow-x-auto">
+                        <table class="w-full text-xs text-left border-collapse">
+                            <thead class="bg-slate-100 text-slate-600 uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-2 py-2 font-semibold min-w-28">Student #</th>
+                                    @foreach (var topic in topicNames)
+                                    {
+                                        <th class="px-2 py-2 font-semibold min-w-16 text-center" colspan="3">@topic</th>
+                                    }
+                                    <th class="px-2 py-2 font-semibold min-w-16 text-center" colspan="3">Exam</th>
+                                    <th class="px-2 py-2 font-semibold min-w-16">AV %</th>
+                                    <th class="px-2 py-2 font-semibold min-w-12">G</th>
+                                </tr>
+                                <tr>
+                                    <th></th>
+                                    @foreach (var topic in topicNames)
+                                    {
+                                        <th class="px-1 py-1 text-center text-slate-400">M</th>
+                                        <th class="px-1 py-1 text-center text-slate-400">%</th>
+                                        <th class="px-1 py-1 text-center text-slate-400">G</th>
+                                    }
+                                    <th class="px-1 py-1 text-center text-slate-400">M</th>
+                                    <th class="px-1 py-1 text-center text-slate-400">%</th>
+                                    <th class="px-1 py-1 text-center text-slate-400">G</th>
+                                    <th></th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                @for (var studentIndex = 0; studentIndex < _advancedLevelPreviewStudents.Count; studentIndex++)
+                                {
+                                    var row = _advancedLevelPreviewStudents[studentIndex];
+                                    <tr>
+                                        <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@row.StudentNumber"
+                                                   @oninput="e => row.StudentNumber = e.Value?.ToString() ?? string.Empty" />
+                                        </td>
+                                        @foreach (var topic in topicNames)
+                                        {
+                                            var topicMark = row.Topics.FirstOrDefault(t => string.Equals(t.TopicName, topic, StringComparison.OrdinalIgnoreCase));
+                                            <td class="px-1 py-2 align-top">
+                                                <input class="w-12 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                       value="@(topicMark?.Mark?.ToString() ?? string.Empty)"
+                                                       @oninput="e => OnAdvancedLevelTopicMarkChanged(row, topic, e.Value?.ToString())" />
+                                            </td>
+                                            <td class="px-1 py-2 align-top">
+                                                <input class="w-14 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                       value="@(topicMark?.Percentage?.ToString() ?? string.Empty)"
+                                                       @oninput="e => OnAdvancedLevelTopicPctChanged(row, topic, e.Value?.ToString())" />
+                                            </td>
+                                            <td class="px-1 py-2 align-top">
+                                                <input class="w-10 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                       value="@(topicMark?.Grade ?? string.Empty)"
+                                                       @oninput="e => OnAdvancedLevelTopicGradeChanged(row, topic, e.Value?.ToString())" />
+                                            </td>
+                                        }
+                                        <td class="px-1 py-2 align-top">
+                                            <input class="w-12 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                   value="@(row.Exam?.Mark?.ToString() ?? string.Empty)"
+                                                   @oninput="e => OnAdvancedLevelExamMarkChanged(row, e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-1 py-2 align-top">
+                                            <input class="w-14 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                   value="@(row.Exam?.Percentage?.ToString() ?? string.Empty)"
+                                                   @oninput="e => OnAdvancedLevelExamPctChanged(row, e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-1 py-2 align-top">
+                                            <input class="w-10 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                   value="@(row.Exam?.Grade ?? string.Empty)"
+                                                   @oninput="e => OnAdvancedLevelExamGradeChanged(row, e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-1 py-2 align-top">
+                                            <input class="w-14 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                   value="@(row.AveragePercentage?.ToString() ?? string.Empty)"
+                                                   @oninput="e => row.AveragePercentage = ParseDoubleOrNull(e.Value?.ToString())" />
+                                        </td>
+                                        <td class="px-1 py-2 align-top">
+                                            <input class="w-10 rounded border border-slate-300 bg-white px-1 py-1 text-center"
+                                                   value="@(row.OverallGrade ?? string.Empty)"
+                                                   @oninput="e => row.OverallGrade = e.Value?.ToString()" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <button class="mt-3 inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-100 font-medium px-4 py-2 rounded-lg text-xs"
+                            @onclick="SaveAdvancedLevelSheetSnapshotAsync"
+                            disabled="@_isBusy">
+                        Save Edited Advanced Level Data
+                    </button>
+                }
+            </div>
+
+            <div class="rounded-lg border border-slate-200 p-4">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">Generate Advanced Level Reports</p>
+                        <p class="text-xs text-slate-500">Uses persisted prompt, exam summary, results spreadsheet, and advanced level test results.</p>
+                    </div>
+                </div>
+                <button class="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg text-sm"
+                        @onclick="GenerateReportsAsync"
+                        disabled="@(_isBusy || string.IsNullOrWhiteSpace(_workspace.Exam.SummaryFinal) || _workspace.ResultsAnalysis.Students.Count == 0 || _workspace.AdvancedLevel.Students.Count == 0)">
+                    Generate Reports
+                </button>
+                @if (_isGeneratingReports)
+                {
+                    <button class="ml-2 inline-flex items-center gap-2 border border-red-300 text-red-700 hover:bg-red-50 font-semibold px-4 py-2 rounded-lg text-sm"
+                            @onclick="CancelGeneration">
+                        Cancel Generation
+                    </button>
+                }
+                @if (_workspace.AdvancedLevel.Runs.Count > 0)
+                {
+                    <span class="text-xs text-slate-500 ml-3">Latest run: @_workspace.AdvancedLevel.Runs[0].RunId</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (_errorMessage is not null)
+    {
+        <div class="flex items-start gap-3 border-l-4 border-red-500 bg-red-50 text-red-800 px-4 py-3 rounded-r-xl mb-4 text-sm">
+            <span>@_errorMessage</span>
+        </div>
+    }
+
+    @if (_progressSteps.Count > 0)
+    {
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+            <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Generation Progress</h2>
+            <ProgressLog Steps="_progressSteps" TotalStudents="@_totalStudents" DoneStudents="@_doneStudents" />
+        </div>
+    }
+
+    @if (_reportRows.Count > 0)
+    {
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 mb-6 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100">
+                <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Results</h2>
+            </div>
+            <ResultsTable Rows="_reportRows" />
+        </div>
+    }
+
+    <DownloadButton Token="@_downloadToken" />
+
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6">
+        <h2 class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5">Version History</h2>
+        <div class="space-y-2">
+            @foreach (var version in _workspace.Versions)
+            {
+                <div class="flex flex-wrap items-center gap-3 border border-slate-200 rounded-lg px-3 py-2">
+                    <span class="text-xs font-semibold text-slate-700">v@version.Number</span>
+                    <span class="text-xs text-slate-500">@version.Reason</span>
+                    <span class="text-xs text-slate-400">@version.CreatedUtc.LocalDateTime.ToString("yyyy-MM-dd HH:mm")</span>
+                    <button class="ml-auto text-xs text-indigo-700 hover:text-indigo-900" @onclick="() => PreviewDiffAsync(version.Number)">Preview Diff</button>
+                    <button class="text-xs text-amber-700 hover:text-amber-900" @onclick="() => RestoreVersionAsync(version.Number)">Restore</button>
+                </div>
+            }
+        </div>
+
+        @if (_diffPreview is not null)
+        {
+            <div class="mt-4 rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                <p class="text-sm font-semibold text-indigo-800 mb-2">Diff preview vs v@_diffPreview.VersionNumber (@_diffPreview.Reason)</p>
+                @foreach (var diffSection in _diffPreview.Sections)
+                {
+                    <div class="mb-2">
+                        <p class="text-xs font-semibold text-indigo-700">@diffSection.Title</p>
+                        @foreach (var line in diffSection.Lines)
+                        {
+                            <p class="text-xs text-indigo-800">- @line</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const string WorkspaceKind = WorkspaceKinds.AdvancedLevel;
+
+    private static readonly (string Code, string Label)[] AdvancedLevelGradeBands =
+    [
+        ("A", "A"),
+        ("B", "B"),
+        ("C", "C"),
+        ("D", "D"),
+        ("E", "E"),
+    ];
+
+    [SupplyParameterFromQuery(Name = "workspaceId")]
+    public string? WorkspaceId { get; set; }
+
+    private List<WorkspaceSummary> _workspaces = [];
+    private WorkspaceState? _workspace;
+    private string? _selectedWorkspaceId;
+    private string _workspaceNameDraft = string.Empty;
+
+    private string _selectedModel = string.Empty;
+    private string _prompt = string.Empty;
+    private string _task = string.Empty;
+    private bool _taskExpanded;
+    private IReadOnlyList<ExampleReport> _examples = [];
+
+    private string? _examUploadFileName;
+    private byte[]? _examUploadData;
+    private string? _resultsSheetUploadFileName;
+    private byte[]? _resultsSheetUploadData;
+    private string? _advancedLevelSheetUploadFileName;
+    private byte[]? _advancedLevelSheetUploadData;
+    private string _examSummaryEditable = string.Empty;
+    private List<WorkspaceResultsStudentSnapshot> _resultsPreviewStudents = [];
+    private bool _resultsPreviewCollapsed;
+    private List<WorkspaceAdvancedLevelStudentSnapshot> _advancedLevelPreviewStudents = [];
+    private bool _advancedLevelPreviewCollapsed;
+
+    private bool _isBusy;
+    private string? _errorMessage;
+    private string? _downloadToken;
+    private WorkspaceVersionDiff? _diffPreview;
+
+    private readonly List<ProgressStep> _progressSteps = [];
+    private readonly List<ReportRow> _reportRows = [];
+    private readonly HashSet<int> _expandedResultsMarks = [];
+    private CancellationTokenSource? _generationCts;
+    private bool _isGeneratingReports;
+    private int _totalStudents;
+    private int _doneStudents;
+    private bool _initAttempted;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await LoadWorkspacesAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _initAttempted = true;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_initAttempted)
+            return;
+
+        if (_workspace is not null && string.Equals(_workspace.Id, WorkspaceId, StringComparison.Ordinal))
+            return;
+
+        if (_workspaces.Count == 0)
+            return;
+
+        var requested = WorkspaceId;
+        if (!string.IsNullOrWhiteSpace(requested)
+            && _workspaces.Any(w => string.Equals(w.Id, requested, StringComparison.Ordinal)))
+        {
+            try
+            {
+                _selectedWorkspaceId = requested;
+                await LoadWorkspaceAsync(requested);
+            }
+            catch (Exception ex)
+            {
+                _errorMessage = ex.Message;
+            }
+        }
+    }
+
+    private async Task LoadWorkspacesAsync()
+    {
+        _workspaces = (await WorkspaceStore.ListAsync(WorkspaceKind)).ToList();
+        if (_workspaces.Count == 0)
+        {
+            var created = await WorkspaceStore.CreateAsync("Default Workspace", WorkspaceKind, OllamaOptions.Model, ReportOptions.DefaultPrompt, ReportOptions.DefaultTask);
+            _workspaces = [new WorkspaceSummary
+            {
+                Id = created.Id,
+                Name = created.Name,
+                Kind = created.Kind,
+                UpdatedUtc = created.UpdatedUtc,
+                CurrentVersion = created.CurrentVersion,
+            }];
+        }
+
+        if (!string.IsNullOrWhiteSpace(WorkspaceId)
+            && _workspaces.Any(w => string.Equals(w.Id, WorkspaceId, StringComparison.Ordinal)))
+        {
+            _selectedWorkspaceId = WorkspaceId;
+        }
+        else
+        {
+            _selectedWorkspaceId ??= _workspaces[0].Id;
+        }
+
+        await LoadWorkspaceAsync(_selectedWorkspaceId);
+    }
+
+    private async Task LoadWorkspaceAsync(string? workspaceId)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceId))
+            return;
+
+        _workspace = await WorkspaceStore.GetAsync(workspaceId);
+        _selectedWorkspaceId = _workspace.Id;
+        _workspaceNameDraft = _workspace.Name;
+        _selectedModel = _workspace.SelectedModel;
+        _prompt = string.IsNullOrWhiteSpace(_workspace.Prompt) ? ReportOptions.DefaultPrompt : _workspace.Prompt;
+        _task = string.IsNullOrWhiteSpace(_workspace.Task) ? ReportOptions.DefaultTask : _workspace.Task;
+        _examples = _workspace.Examples.AsReadOnly();
+        _examSummaryEditable = _workspace.Exam.SummaryFinal ?? string.Empty;
+        _resultsPreviewStudents = CloneResults(_workspace.ResultsAnalysis.Students);
+        _expandedResultsMarks.Clear();
+        _advancedLevelPreviewStudents = CloneAdvancedLevel(_workspace.AdvancedLevel.Students);
+        _diffPreview = null;
+
+        LoadLatestRunRows();
+    }
+
+    private void LoadLatestRunRows()
+    {
+        _reportRows.Clear();
+        _downloadToken = null;
+        if (_workspace is null)
+            return;
+
+        var run = _workspace.AdvancedLevel.Runs.FirstOrDefault();
+        if (run is null)
+            return;
+
+        foreach (var row in run.Rows)
+            _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
+
+        if (!string.IsNullOrWhiteSpace(run.ReportFilePath) && File.Exists(run.ReportFilePath))
+            _downloadToken = DownloadTokenStore.Register(run.ReportFilePath);
+    }
+
+    private async Task OnWorkspaceChanged(ChangeEventArgs args)
+    {
+        var id = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(id))
+            return;
+
+        await LoadWorkspaceAsync(id);
+    }
+
+    private async Task RenameWorkspaceAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        _errorMessage = null;
+        try
+        {
+            await WorkspaceStore.RenameAsync(_workspace.Id, _workspaceNameDraft);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private Task OnExamplesChanged(IReadOnlyList<ExampleReport> examples)
+    {
+        _examples = examples;
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveConfigurationAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveConfigurationAsync(_workspace.Id, _selectedModel, _prompt, _task, _examples);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task OnExamUpload(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        _examUploadFileName = file.Name;
+        using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        _examUploadData = ms.ToArray();
+    }
+
+    private async Task OnResultsSheetUpload(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        _resultsSheetUploadFileName = file.Name;
+        using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        _resultsSheetUploadData = ms.ToArray();
+    }
+
+    private async Task OnAdvancedLevelSheetUpload(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        _advancedLevelSheetUploadFileName = file.Name;
+        using var ms = new MemoryStream();
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        _advancedLevelSheetUploadData = ms.ToArray();
+    }
+
+    private async Task ProcessExamAsync()
+    {
+        if (_workspace is null || _examUploadData is null || string.IsNullOrWhiteSpace(_examUploadFileName))
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.ProcessExamAsync(
+                _workspace.Id,
+                _examUploadFileName,
+                _examUploadData,
+                _examSummaryEditable);
+
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task SaveExamSummaryAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveExamSummaryAsync(_workspace.Id, _examSummaryEditable);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task PreprocessResultsSheetAsync()
+    {
+        if (_workspace is null || _resultsSheetUploadData is null || string.IsNullOrWhiteSpace(_resultsSheetUploadFileName))
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.PreprocessResultsSheetAsync(_workspace.Id, _resultsSheetUploadFileName, _resultsSheetUploadData);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task SaveResultsSheetSnapshotAsync()
+    {
+        if (_workspace is null || _resultsPreviewStudents.Count == 0)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveResultsSheetSnapshotAsync(_workspace.Id, _resultsPreviewStudents);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task PreprocessAdvancedLevelSheetAsync()
+    {
+        if (_workspace is null || _advancedLevelSheetUploadData is null || string.IsNullOrWhiteSpace(_advancedLevelSheetUploadFileName))
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.PreprocessAdvancedLevelSheetAsync(_workspace.Id, _advancedLevelSheetUploadFileName, _advancedLevelSheetUploadData);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task SaveAdvancedLevelSheetSnapshotAsync()
+    {
+        if (_workspace is null || _advancedLevelPreviewStudents.Count == 0)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspacePipeline.SaveAdvancedLevelSheetSnapshotAsync(_workspace.Id, _advancedLevelPreviewStudents);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task GenerateReportsAsync()
+    {
+        if (_workspace is null)
+            return;
+
+        _progressSteps.Clear();
+        _reportRows.Clear();
+        _downloadToken = null;
+        _doneStudents = 0;
+        _totalStudents = _workspace.ResultsAnalysis.Students.Count;
+
+        await RunBusyAsync(async () =>
+        {
+            using var generationCts = new CancellationTokenSource();
+            _generationCts = generationCts;
+            _isGeneratingReports = true;
+
+            try
+            {
+                var result = await WorkspacePipeline.GenerateAdvancedLevelReportsAsync(
+                    _workspace.Id,
+                    step =>
+                    {
+                        _progressSteps.Add(step);
+                        if (step.Status == StepStatus.Done || step.Status == StepStatus.Skipped)
+                            _doneStudents++;
+                        InvokeAsync(StateHasChanged);
+                    },
+                    row =>
+                    {
+                        _ = InvokeAsync(() =>
+                        {
+                            _reportRows.Add(new ReportRow(row.SequenceNumber, row.StudentName, row.ReportText, row.PromptText));
+                            StateHasChanged();
+                        });
+                    },
+                    generationCts.Token);
+
+                _workspace = result.Workspace;
+                await LoadWorkspacesAsync();
+                await LoadWorkspaceAsync(_workspace.Id);
+            }
+            catch (OperationCanceledException)
+            {
+                _progressSteps.Add(new ProgressStep("Generation cancelled by user.", StepStatus.Skipped));
+            }
+            finally
+            {
+                _isGeneratingReports = false;
+                _generationCts = null;
+                await InvokeAsync(StateHasChanged);
+            }
+        });
+    }
+
+    private void CancelGeneration()
+    {
+        _generationCts?.Cancel();
+    }
+
+    private async Task PreviewDiffAsync(int versionNumber)
+    {
+        if (_workspace is null)
+            return;
+
+        _diffPreview = await WorkspaceStore.BuildDiffPreviewAsync(_workspace.Id, versionNumber);
+    }
+
+    private async Task RestoreVersionAsync(int versionNumber)
+    {
+        if (_workspace is null)
+            return;
+
+        await RunBusyAsync(async () =>
+        {
+            _workspace = await WorkspaceStore.RestoreVersionAsync(_workspace.Id, versionNumber);
+            await LoadWorkspacesAsync();
+            await LoadWorkspaceAsync(_workspace.Id);
+        });
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        _isBusy = true;
+        _errorMessage = null;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private static string RenderProcessed(DateTimeOffset? value)
+        => value is null ? "Not processed" : $"Processed {value.Value.LocalDateTime:yyyy-MM-dd HH:mm}";
+
+    private static int? ParseIntOrNull(string? value)
+        => int.TryParse(value, out var parsed) ? parsed : null;
+
+    private static double? ParseDoubleOrNull(string? value)
+        => double.TryParse(value, out var parsed) ? parsed : null;
+
+    private static int ParseIntOrDefault(string? value, int fallback)
+        => int.TryParse(value, out var parsed) ? parsed : fallback;
+
+    private void ToggleResultsPreview()
+        => _resultsPreviewCollapsed = !_resultsPreviewCollapsed;
+
+    private void ToggleAdvancedLevelPreview()
+        => _advancedLevelPreviewCollapsed = !_advancedLevelPreviewCollapsed;
+
+    private void ToggleResultsMarks(int studentIndex)
+    {
+        if (!_expandedResultsMarks.Add(studentIndex))
+            _expandedResultsMarks.Remove(studentIndex);
+    }
+
+    private void OnAdvancedLevelTopicMarkChanged(WorkspaceAdvancedLevelStudentSnapshot student, string topicName, string? value)
+    {
+        var topic = student.Topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
+        if (topic is null)
+        {
+            student.Topics.Add(new WorkspaceAdvancedLevelTopicSnapshot { TopicName = topicName, Mark = ParseIntOrNull(value) });
+            return;
+        }
+        topic.Mark = ParseIntOrNull(value);
+    }
+
+    private void OnAdvancedLevelTopicPctChanged(WorkspaceAdvancedLevelStudentSnapshot student, string topicName, string? value)
+    {
+        var topic = student.Topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
+        if (topic is null)
+        {
+            student.Topics.Add(new WorkspaceAdvancedLevelTopicSnapshot { TopicName = topicName, Percentage = ParseDoubleOrNull(value) });
+            return;
+        }
+        topic.Percentage = ParseDoubleOrNull(value);
+    }
+
+    private void OnAdvancedLevelTopicGradeChanged(WorkspaceAdvancedLevelStudentSnapshot student, string topicName, string? value)
+    {
+        var topic = student.Topics.FirstOrDefault(t => string.Equals(t.TopicName, topicName, StringComparison.OrdinalIgnoreCase));
+        if (topic is null)
+        {
+            student.Topics.Add(new WorkspaceAdvancedLevelTopicSnapshot { TopicName = topicName, Grade = value });
+            return;
+        }
+        topic.Grade = value;
+    }
+
+    private void OnAdvancedLevelExamMarkChanged(WorkspaceAdvancedLevelStudentSnapshot student, string? value)
+    {
+        if (student.Exam is null)
+            student.Exam = new WorkspaceAdvancedLevelExamSnapshot { Mark = ParseIntOrNull(value) };
+        else
+            student.Exam.Mark = ParseIntOrNull(value);
+    }
+
+    private void OnAdvancedLevelExamPctChanged(WorkspaceAdvancedLevelStudentSnapshot student, string? value)
+    {
+        if (student.Exam is null)
+            student.Exam = new WorkspaceAdvancedLevelExamSnapshot { Percentage = ParseDoubleOrNull(value) };
+        else
+            student.Exam.Percentage = ParseDoubleOrNull(value);
+    }
+
+    private void OnAdvancedLevelExamGradeChanged(WorkspaceAdvancedLevelStudentSnapshot student, string? value)
+    {
+        if (student.Exam is null)
+            student.Exam = new WorkspaceAdvancedLevelExamSnapshot { Grade = value };
+        else
+            student.Exam.Grade = value;
+    }
+
+    private static List<WorkspaceResultsStudentSnapshot> CloneResults(IReadOnlyList<WorkspaceResultsStudentSnapshot> source)
+        => source
+            .Select(s => new WorkspaceResultsStudentSnapshot
+            {
+                StudentNumber = s.StudentNumber,
+                Class = s.Class,
+                Total = s.Total,
+                Percentage = s.Percentage,
+                Rank = s.Rank,
+                Grade = s.Grade,
+                ClassInteractionKeywords = s.ClassInteractionKeywords,
+                Marks = s.Marks.Select(m => new WorkspaceQuestionMarkSnapshot
+                {
+                    Label = m.Label,
+                    StudentMark = m.StudentMark,
+                    MaxMark = m.MaxMark,
+                }).ToList(),
+            })
+            .ToList();
+
+    private static List<WorkspaceAdvancedLevelStudentSnapshot> CloneAdvancedLevel(IReadOnlyList<WorkspaceAdvancedLevelStudentSnapshot> source)
+        => source
+            .Select(s => new WorkspaceAdvancedLevelStudentSnapshot
+            {
+                StudentNumber = s.StudentNumber,
+                Topics = s.Topics.Select(t => new WorkspaceAdvancedLevelTopicSnapshot
+                {
+                    TopicName = t.TopicName,
+                    Mark = t.Mark,
+                    Percentage = t.Percentage,
+                    Grade = t.Grade,
+                }).ToList(),
+                Exam = s.Exam is not null
+                    ? new WorkspaceAdvancedLevelExamSnapshot
+                    {
+                        Mark = s.Exam.Mark,
+                        Percentage = s.Exam.Percentage,
+                        Grade = s.Exam.Grade,
+                    }
+                    : null,
+                AveragePercentage = s.AveragePercentage,
+                OverallGrade = s.OverallGrade,
+            })
+            .ToList();
+}

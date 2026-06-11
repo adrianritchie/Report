@@ -18,6 +18,7 @@ public sealed class WorkspaceState
     public WorkspaceSheetState Sheet { get; set; } = new();
     public WorkspaceReportsState Reports { get; set; } = new();
     public WorkspaceResultsAnalysisState ResultsAnalysis { get; set; } = new();
+    public WorkspaceAdvancedLevelState AdvancedLevel { get; set; } = new();
 
     public List<WorkspaceVersionEntry> Versions { get; set; } = [];
 }
@@ -137,12 +138,49 @@ public sealed class WorkspaceSnapshot
     public WorkspaceSheetState Sheet { get; set; } = new();
     public WorkspaceReportsState Reports { get; set; } = new();
     public WorkspaceResultsAnalysisState ResultsAnalysis { get; set; } = new();
+    public WorkspaceAdvancedLevelState AdvancedLevel { get; set; } = new();
+}
+
+public sealed class WorkspaceAdvancedLevelState
+{
+    public string? SourceFileName { get; set; }
+    public string? SourceHash { get; set; }
+    public string? SourceFilePath { get; set; }
+    public List<WorkspaceAdvancedLevelStudentSnapshot> Students { get; set; } = [];
+    public DateTimeOffset? ProcessedUtc { get; set; }
+    public string? LatestRunId { get; set; }
+    public List<WorkspaceReportRunSnapshot> Runs { get; set; } = [];
+}
+
+public sealed class WorkspaceAdvancedLevelStudentSnapshot
+{
+    public string StudentNumber { get; set; } = string.Empty;
+    public List<WorkspaceAdvancedLevelTopicSnapshot> Topics { get; set; } = [];
+    public WorkspaceAdvancedLevelExamSnapshot? Exam { get; set; }
+    public double? AveragePercentage { get; set; }
+    public string? OverallGrade { get; set; }
+}
+
+public sealed class WorkspaceAdvancedLevelTopicSnapshot
+{
+    public string TopicName { get; set; } = string.Empty;
+    public int? Mark { get; set; }
+    public double? Percentage { get; set; }
+    public string? Grade { get; set; }
+}
+
+public sealed class WorkspaceAdvancedLevelExamSnapshot
+{
+    public int? Mark { get; set; }
+    public double? Percentage { get; set; }
+    public string? Grade { get; set; }
 }
 
 public static class WorkspaceKinds
 {
     public const string Feedback = "feedback";
     public const string Results = "results";
+    public const string AdvancedLevel = "a-level";
 }
 
 public sealed class WorkspaceVersionDiff

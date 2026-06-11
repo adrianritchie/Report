@@ -32,7 +32,7 @@
         <div class="px-4 py-4 border-t border-slate-200 space-y-4">
 
             <p class="text-xs text-slate-400">
-                Enter real example reports from this class, each labelled with a grade band.
+                Enter real example reports from this class, each labelled with a grade.
                 All examples will be included in every student's prompt so the model can
                 match the expected tone, length, and phrasing.
             </p>
@@ -107,8 +107,8 @@
 </div>
 
 @code {
-    // Grade bands in display order (high → low).
-    private static readonly (string Code, string Label)[] GradeBands =
+    // Default grade bands in display order (high → low) for feedback/results pages.
+    private static readonly (string Code, string Label)[] DefaultGradeBands =
     [
         ("H",  "High"),
         ("VG", "Very Good"),
@@ -124,6 +124,7 @@
     [Parameter] public EventCallback<IReadOnlyList<ExampleReport>> ExamplesChanged { get; set; }
     [Parameter] public IReadOnlyList<ExampleReport>? Examples { get; set; }
     [Parameter] public bool UseBrowserStorage { get; set; } = true;
+    [Parameter] public (string Code, string Label)[] GradeBands { get; set; } = DefaultGradeBands;
 
     private List<ExampleReport> _examples = [];
     private string _newGrade = "H";
@@ -141,6 +142,9 @@
             return;
 
         _examples = Examples.ToList();
+
+        if (GradeBands.Length > 0 && !GradeBands.Any(b => string.Equals(b.Code, _newGrade, StringComparison.OrdinalIgnoreCase)))
+            _newGrade = GradeBands[0].Code;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -199,14 +203,14 @@
         _saveTimer.Start();
     }
 
-    private static string GradeBadgeClass(string code) => code switch
+    private static string GradeBadgeClass(string code) => code.ToUpperInvariant() switch
     {
-        "H"  => "bg-emerald-100 text-emerald-800",
-        "VG" => "bg-green-100 text-green-800",
-        "G"  => "bg-blue-100 text-blue-800",
-        "F"  => "bg-amber-100 text-amber-800",
-        "WT" => "bg-rose-100 text-rose-800",
-        _    => "bg-slate-100 text-slate-700",
+        "H" or "A"  => "bg-emerald-100 text-emerald-800",
+        "VG" or "B" => "bg-green-100 text-green-800",
+        "G" or "C"  => "bg-blue-100 text-blue-800",
+        "F" or "D"  => "bg-amber-100 text-amber-800",
+        "WT" or "E" => "bg-rose-100 text-rose-800",
+        _           => "bg-slate-100 text-slate-700",
     };
 
     public void Dispose()

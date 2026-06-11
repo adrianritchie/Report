@@ -26,6 +26,7 @@ builder.Services.AddSingleton(reportOptions);
 builder.Services.AddSingleton<IContentExtractor, ContentExtractorRouter>();
 builder.Services.AddSingleton<IExcelExtractor, ExcelExtractor>();
 builder.Services.AddSingleton<IResultsExtractor, ResultsExtractor>();
+builder.Services.AddSingleton<IAdvancedLevelExtractor, AdvancedLevelExtractor>();
 builder.Services.AddSingleton<PromptBuilder>();
 builder.Services.AddSingleton<DownloadTokenStore>();
 builder.Services.AddScoped<ExampleReportsStore>();

@@ -490,6 +490,105 @@ public sealed class WorkspaceStore
         }
     }
 
+    public async Task<WorkspaceState> SaveAdvancedLevelSheetProcessingAsync(
+        string workspaceId,
+        string sourceFileName,
+        byte[] sourceData,
+        IReadOnlyList<WorkspaceAdvancedLevelStudentSnapshot> students)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            var state = await LoadStateAsync(workspaceId);
+            var workspacePath = GetWorkspacePath(workspaceId);
+            var sheetDir = Path.Combine(workspacePath, "advanced-level");
+            Directory.CreateDirectory(sheetDir);
+
+            var sourcePath = Path.Combine(sheetDir, "source.xlsx");
+            await File.WriteAllBytesAsync(sourcePath, sourceData);
+
+            state.AdvancedLevel.SourceFileName = sourceFileName;
+            state.AdvancedLevel.SourceHash = ComputeHash(sourceData);
+            state.AdvancedLevel.SourceFilePath = sourcePath;
+            state.AdvancedLevel.Students = students.ToList();
+            state.AdvancedLevel.ProcessedUtc = DateTimeOffset.UtcNow;
+            state.UpdatedUtc = DateTimeOffset.UtcNow;
+
+            await SaveStateAsync(state);
+            await CreateVersionInternalAsync(state, "advanced_level_sheet_preprocessed");
+            return state;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task<WorkspaceState> UpdateAdvancedLevelSheetSnapshotAsync(
+        string workspaceId,
+        IReadOnlyList<WorkspaceAdvancedLevelStudentSnapshot> students)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            var state = await LoadStateAsync(workspaceId);
+            if (state.AdvancedLevel.Students.Count == 0)
+                throw new InvalidOperationException("Preprocess the advanced level spreadsheet before editing it.");
+
+            state.AdvancedLevel.Students = students.ToList();
+            state.AdvancedLevel.ProcessedUtc = DateTimeOffset.UtcNow;
+            state.UpdatedUtc = DateTimeOffset.UtcNow;
+
+            await SaveStateAsync(state);
+            await CreateVersionInternalAsync(state, "advanced_level_sheet_snapshot_edited");
+            return state;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
+    public async Task<WorkspaceState> SaveAdvancedLevelReportRunAsync(
+        string workspaceId,
+        IReadOnlyList<ReportRowSnapshot> rows,
+        string reportFilePath)
+    {
+        await _mutex.WaitAsync();
+        try
+        {
+            var state = await LoadStateAsync(workspaceId);
+            var workspacePath = GetWorkspacePath(workspaceId);
+            var runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss");
+            var runDir = Path.Combine(workspacePath, "advanced-level", "runs", runId);
+            Directory.CreateDirectory(runDir);
+
+            var destination = Path.Combine(runDir, "reports.xlsx");
+            File.Copy(reportFilePath, destination, true);
+
+            var run = new WorkspaceReportRunSnapshot
+            {
+                RunId = runId,
+                CreatedUtc = DateTimeOffset.UtcNow,
+                ReportFileName = "reports.xlsx",
+                ReportFilePath = destination,
+                Rows = rows.ToList(),
+            };
+
+            state.AdvancedLevel.Runs.Insert(0, run);
+            state.AdvancedLevel.LatestRunId = runId;
+            state.UpdatedUtc = DateTimeOffset.UtcNow;
+
+            await SaveStateAsync(state);
+            await CreateVersionInternalAsync(state, "advanced_level_reports_generated");
+            return state;
+        }
+        finally
+        {
+            _mutex.Release();
+        }
+    }
+
     public async Task<WorkspaceState> RestoreVersionAsync(string workspaceId, int versionNumber)
     {
         await _mutex.WaitAsync();
@@ -512,6 +611,7 @@ public sealed class WorkspaceStore
             state.Sheet = snapshot.Sheet;
             state.Reports = snapshot.Reports;
             state.ResultsAnalysis = snapshot.ResultsAnalysis;
+            state.AdvancedLevel = snapshot.AdvancedLevel;
             state.UpdatedUtc = DateTimeOffset.UtcNow;
 
             await SaveStateAsync(state);
@@ -548,6 +648,7 @@ public sealed class WorkspaceStore
                     BuildSheetDiff(state, snapshot),
                     BuildReportsDiff(state, snapshot),
                     BuildResultsAnalysisDiff(state, snapshot),
+                    BuildAdvancedLevelDiff(state, snapshot),
                 ],
             };
 
@@ -672,6 +773,41 @@ public sealed class WorkspaceStore
         return new WorkspaceDiffSection { Title = "Results Reports", Lines = lines };
     }
 
+    private WorkspaceDiffSection BuildAdvancedLevelDiff(WorkspaceState current, WorkspaceSnapshot previous)
+    {
+        var lines = new List<string>();
+        if (!string.Equals(current.AdvancedLevel.SourceHash, previous.AdvancedLevel.SourceHash, StringComparison.Ordinal))
+            lines.Add("Advanced level spreadsheet changed.");
+
+        if (current.AdvancedLevel.Students.Count != previous.AdvancedLevel.Students.Count)
+            lines.Add($"Advanced level students: {previous.AdvancedLevel.Students.Count} -> {current.AdvancedLevel.Students.Count}");
+
+        var currLatest = current.AdvancedLevel.Runs.FirstOrDefault();
+        var prevLatest = previous.AdvancedLevel.Runs.FirstOrDefault();
+        if (currLatest is null && prevLatest is null)
+        {
+            lines.Add("No advanced level report runs in either version.");
+        }
+        else if (currLatest is null)
+        {
+            lines.Add("Current workspace has no advanced level runs.");
+        }
+        else if (prevLatest is null)
+        {
+            lines.Add("Current workspace has advanced level runs; selected version had none.");
+        }
+        else if (!string.Equals(currLatest.RunId, prevLatest.RunId, StringComparison.Ordinal))
+        {
+            lines.Add($"Latest advanced level run changed: {prevLatest.RunId} -> {currLatest.RunId}");
+            lines.Add($"Rows: {prevLatest.Rows.Count} -> {currLatest.Rows.Count}");
+        }
+
+        if (lines.Count == 0)
+            lines.Add("No advanced level changes.");
+
+        return new WorkspaceDiffSection { Title = "Advanced Level", Lines = lines };
+    }
+
     private static IEnumerable<string> BuildTextChanges(string title, string? previous, string? current)
     {
         var oldText = previous ?? string.Empty;
@@ -699,6 +835,7 @@ public sealed class WorkspaceStore
             Sheet = Clone(state.Sheet),
             Reports = Clone(state.Reports),
             ResultsAnalysis = Clone(state.ResultsAnalysis),
+            AdvancedLevel = Clone(state.AdvancedLevel),
         };
 
         var snapshotFile = $"v{nextVersion}.json";
