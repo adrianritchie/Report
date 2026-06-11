@@ -160,6 +160,7 @@
                                     <th class="px-2 py-2 font-semibold min-w-24">Percentage</th>
                                     <th class="px-2 py-2 font-semibold min-w-16">Rank</th>
                                     <th class="px-2 py-2 font-semibold min-w-20">Grade</th>
+                                    <th class="px-2 py-2 font-semibold min-w-80">Class Interaction Keywords</th>
                                     <th class="px-2 py-2 font-semibold min-w-24">Marks</th>
                                 </tr>
                             </thead>
@@ -201,6 +202,11 @@
                                                    @oninput="e => row.Grade = e.Value?.ToString()" />
                                         </td>
                                         <td class="px-2 py-2 align-top">
+                                            <input class="w-full rounded border border-slate-300 bg-white px-2 py-1"
+                                                   value="@(row.ClassInteractionKeywords ?? string.Empty)"
+                                                   @oninput="e => row.ClassInteractionKeywords = e.Value?.ToString()" />
+                                        </td>
+                                        <td class="px-2 py-2 align-top">
                                             <button type="button"
                                                     class="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900"
                                                     @onclick="() => ToggleResultsMarks(rowIndex)">
@@ -212,7 +218,7 @@
                                     @if (showMarks)
                                     {
                                         <tr class="bg-slate-50">
-                                            <td colspan="7" class="px-2 pb-3 pt-1">
+                                            <td colspan="8" class="px-2 pb-3 pt-1">
                                                 <div class="rounded border border-slate-200 bg-white p-2">
                                                     <p class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">Question Marks</p>
                                                     <div class="grid grid-cols-1 gap-1">
@@ -741,6 +747,7 @@
                 Percentage = s.Percentage,
                 Rank = s.Rank,
                 Grade = s.Grade,
+                ClassInteractionKeywords = s.ClassInteractionKeywords,
                 Marks = s.Marks.Select(m => new WorkspaceQuestionMarkSnapshot
                 {
                     Label = m.Label,

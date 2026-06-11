@@ -172,6 +172,13 @@ public sealed class PromptBuilder
 
         sb.AppendLine();
 
+        if (!string.IsNullOrWhiteSpace(row.ClassInteractionKeywords))
+        {
+            sb.AppendLine("[CLASS INTERACTION KEYWORDS]");
+            sb.AppendLine(row.ClassInteractionKeywords.Trim());
+            sb.AppendLine();
+        }
+
         sb.AppendLine("[TEACHER INSTRUCTIONS]");
         sb.AppendLine(teacherPrompt.Trim());
         sb.AppendLine();

@@ -93,7 +93,7 @@ public sealed class ResultsExtractor : IResultsExtractor
             if (string.IsNullOrWhiteSpace(grade))
                 grade = null;
 
-            rows.Add(new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank, grade));
+            rows.Add(new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank, grade, null));
         }
 
         return rows;

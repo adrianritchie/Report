@@ -151,6 +151,7 @@ public sealed class WorkspacePipelineService(
                 {
                     StudentNumber = r.StudentNumber,
                     Class = r.Class,
+                    ClassInteractionKeywords = r.ClassInteractionKeywords,
                     Marks = r.Marks
                         .Select(m => new WorkspaceQuestionMarkSnapshot
                         {
@@ -307,7 +308,8 @@ public sealed class WorkspacePipelineService(
                     student.Total,
                     student.Percentage,
                     student.Rank,
-                    student.Grade);
+                    student.Grade,
+                    student.ClassInteractionKeywords);
 
                 var fullPrompt = promptBuilder.BuildResultsPrompt(
                     workspace.Exam.SummaryFinal!,

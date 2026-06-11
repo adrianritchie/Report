@@ -64,6 +64,7 @@ public sealed class WorkspaceResultsStudentSnapshot
 {
     public string StudentNumber { get; set; } = string.Empty;
     public string Class { get; set; } = string.Empty;
+    public string? ClassInteractionKeywords { get; set; }
     public List<WorkspaceQuestionMarkSnapshot> Marks { get; set; } = [];
     public int? Total { get; set; }
     public double? Percentage { get; set; }

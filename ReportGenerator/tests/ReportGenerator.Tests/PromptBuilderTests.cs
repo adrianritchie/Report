@@ -168,6 +168,7 @@ public sealed class BuildResultsPromptTests
         double? percentage   = 72.5,
         int?   rank          = 4,
         string? grade        = null,
+        string? classInteractionKeywords = null,
         IReadOnlyList<QuestionMark>? marks = null)
     {
         marks ??= new[]
@@ -177,7 +178,7 @@ public sealed class BuildResultsPromptTests
             new QuestionMark("2",  null, 5),  // not attempted
         };
 
-        return new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank, grade);
+        return new ResultsRow(studentNumber, studentClass, marks, total, percentage, rank, grade, classInteractionKeywords);
     }
 
     [Fact]
@@ -264,6 +265,16 @@ public sealed class BuildResultsPromptTests
         Assert.Contains("focus on algebra",       result);
         Assert.Contains("[TASK]",                 result);
         Assert.Contains(SampleTask,               result);
+    }
+
+    [Fact]
+    public void BuildResultsPrompt_IncludesClassInteractionKeywords_WhenProvided()
+    {
+        var row = MakeRow(classInteractionKeywords: "positive contributions, helps peers");
+        var result = _builder.BuildResultsPrompt("exam", row, "instructions", SampleTask);
+
+        Assert.Contains("[CLASS INTERACTION KEYWORDS]", result);
+        Assert.Contains("positive contributions, helps peers", result);
     }
 
     [Fact]
